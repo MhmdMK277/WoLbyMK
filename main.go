@@ -22,6 +22,22 @@ func main() {
 		return
 	}
 
+	// Web server mode: WoLmk.exe --serve [port]
+	if len(os.Args) > 1 && os.Args[1] == "--serve" {
+		attachConsole()
+		port := 8080
+		if len(os.Args) > 2 {
+			if p, e := strconv.Atoi(os.Args[2]); e == nil {
+				port = p
+			}
+		}
+		if err := startWebServer(port); err != nil {
+			fmt.Println("Web server error:", err.Error())
+			os.Exit(1)
+		}
+		return
+	}
+
 	app := NewApp()
 	err := wails.Run(&options.App{
 		Title:            "WoLmk",

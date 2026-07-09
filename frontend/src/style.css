@@ -289,6 +289,14 @@ html, body {
 .history-table td.off { color: var(--err); }
 .history-empty { color: var(--faint); padding: 20px 4px; }
 
+/* ---- network scan ---- */
+.scan-bar-track { height: 6px; background: var(--line); border-radius: 4px; overflow: hidden; margin-bottom: 8px; }
+.scan-bar { height: 100%; width: 0; background: var(--accent); transition: width .2s ease; }
+.scan-note { font-size: 12px; color: var(--muted); margin-bottom: 12px; }
+.scan-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.scan-table td { padding: 8px 10px; border-bottom: 1px solid var(--line); color: var(--text); }
+.scan-table td.mono { font-family: var(--mono); color: var(--muted); font-size: 12px; }
+
 /* ---- dropdown menu ---- */
 .menu {
   position: fixed;

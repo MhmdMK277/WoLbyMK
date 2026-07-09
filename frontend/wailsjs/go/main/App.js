@@ -46,6 +46,10 @@ export function SaveDeviceList(arg1) {
   return window['go']['main']['App']['SaveDeviceList'](arg1);
 }
 
+export function ScanNetwork() {
+  return window['go']['main']['App']['ScanNetwork']();
+}
+
 export function SetSchedule(arg1, arg2) {
   return window['go']['main']['App']['SetSchedule'](arg1, arg2);
 }

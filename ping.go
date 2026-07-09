@@ -62,6 +62,22 @@ func checkPort(host string, port, timeoutMs int) (bool, float64) {
 	return true, float64(time.Since(start).Microseconds()) / 1000.0
 }
 
+// resolveHost turns a DNS name into its first IPv4 address. Broadcast
+// addresses and literal IPs are returned unchanged.
+func resolveHost(host string) string {
+	if host == "" || host == defaultBroadcast || net.ParseIP(host) != nil {
+		return host
+	}
+	if ips, err := net.LookupIP(host); err == nil {
+		for _, ip := range ips {
+			if v4 := ip.To4(); v4 != nil {
+				return v4.String()
+			}
+		}
+	}
+	return host
+}
+
 // pingTarget is the address used for status checks and remote commands:
 // the explicit device IP, else a non-broadcast host, else empty.
 func pingTarget(d Device) string {

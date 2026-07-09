@@ -61,6 +61,7 @@ function buildShell() {
           <span class="eyebrow">WAKE ON LAN</span>
         </div>
         <div class="spacer"></div>
+        <button class="btn" id="scanBtn">Scan network</button>
         <button class="btn" id="wakeAll">Wake all</button>
         <button class="btn primary" id="addBtn">+ Add device</button>
       </div>
@@ -76,6 +77,7 @@ function buildShell() {
     </div>`;
 
   document.getElementById("addBtn").onclick = () => openDeviceDialog(null, -1);
+  document.getElementById("scanBtn").onclick = openScanModal;
   document.getElementById("wakeAll").onclick = () => Go().WakeAll();
   document.getElementById("historyBtn").onclick = openHistory;
   document.getElementById("dataBtn").onclick = (e) => openDataMenu(e.currentTarget);
@@ -115,8 +117,7 @@ function renderCard(d, i) {
       </div>
       <div class="card-actions">
         <button class="btn small" data-act="check">Check</button>
-        <button class="btn small" data-act="sleep">Sleep</button>
-        <button class="btn small" data-act="shutdown">Shutdown</button>
+        <button class="btn small" data-act="power">Power</button>
         <button class="btn small" data-act="schedule">Schedule</button>
         <button class="btn primary small" data-act="wake">Wake</button>
         <button class="btn icon small" data-act="more">&#8943;</button>
@@ -141,13 +142,25 @@ function handleAction(act, i, btn) {
   switch (act) {
     case "wake": Go().Wake(i); break;
     case "check": Go().Check(i); break;
-    case "sleep": Go().Remote(i, "sleep"); break;
-    case "shutdown":
-      if (confirm(`Send shutdown to ${devices[i].name}?`)) Go().Remote(i, "shutdown");
-      break;
+    case "power": openPowerMenu(btn, i); break;
     case "schedule": openScheduleDialog(i); break;
     case "more": openCardMenu(btn, i); break;
   }
+}
+
+function openPowerMenu(anchor, i) {
+  showMenu(anchor, [
+    { label: "Shutdown", fn: () => doPower(i, "shutdown") },
+    { label: "Reboot", fn: () => doPower(i, "reboot") },
+    { label: "Sleep", fn: () => doPower(i, "sleep") },
+    { label: "Lock", fn: () => doPower(i, "lock") },
+  ]);
+}
+
+function doPower(i, action) {
+  if ((action === "shutdown" || action === "reboot") &&
+      !confirm(`Send ${action} to ${devices[i].name}?`)) return;
+  Go().Remote(i, action);
 }
 
 function openCardMenu(anchor, i) {
@@ -241,6 +254,8 @@ function openDeviceDialog(device, index) {
       ${field("SERVICE PORT", "servicePort", d.servicePort || "", "Optional; check this TCP port instead of ping", true)}
       ${field("SECUREON PASSWORD", "secureon", d.secureon || "", "Optional 6 hex bytes appended to the packet", true)}
       ${field("USERNAME", "username", d.username || "", "Optional; the {user} placeholder for commands", true)}
+      ${field("AGENT PORT", "agentPort", d.agentPort || "", "Optional; WoLmk-Agent port (default 9477)", true)}
+      ${field("AGENT TOKEN", "agentToken", d.agentToken || "", "Optional; token the agent prints on first run", true)}
       ${field("CREDENTIAL HINT", "credHint", d.credHint || "", "Optional note only; passwords are never stored", false, true)}
     </div>
     <label class="check"><input type="checkbox" data-k="autowake" ${d.autowake ? "checked" : ""}/> Wake on app start</label>
@@ -278,6 +293,7 @@ async function saveDevice(index, base) {
     const k = inp.dataset.k;
     if (inp.type === "checkbox") dev[k] = inp.checked;
     else if (k === "port") dev[k] = parseInt(inp.value || "9", 10) || 9;
+    else if (k === "agentPort") dev[k] = parseInt(inp.value || "0", 10) || 0;
     else dev[k] = inp.value.trim();
   });
   const res = index >= 0 ? await Go().UpdateDevice(index, dev) : await Go().AddDevice(dev);
@@ -401,6 +417,80 @@ async function openHistory() {
   );
 }
 
+// ---- network scan -------------------------------------------------------
+
+function openScanModal() {
+  const body = `
+    <div class="scan-bar-track"><div class="scan-bar" id="scanBar"></div></div>
+    <div class="scan-note" id="scanNote">Detecting your network...</div>
+    <div id="scanResults"></div>`;
+  openModal("Scan network", body, [
+    { label: "Close", cls: "btn", fn: closeScan },
+  ], "wide");
+  RT().EventsOn("scan:progress", (e) => {
+    const pct = e.total ? Math.round((e.done / e.total) * 100) : 0;
+    const bar = document.getElementById("scanBar");
+    const note = document.getElementById("scanNote");
+    if (bar) bar.style.width = pct + "%";
+    if (note) note.textContent = `Scanning your subnet... ${e.done}/${e.total}`;
+  });
+  RT().EventsOn("scan:done", (results) => {
+    RT().EventsOff("scan:progress");
+    const bar = document.getElementById("scanBar");
+    const note = document.getElementById("scanNote");
+    if (bar) bar.style.width = "100%";
+    if (note) note.textContent = `Found ${results.length} device(s) on your network.`;
+    renderScanResults(results || []);
+  });
+  Go().ScanNetwork();
+}
+
+function closeScan() {
+  RT().EventsOff("scan:progress");
+  RT().EventsOff("scan:done");
+  closeModal();
+}
+
+function renderScanResults(results) {
+  const box = document.getElementById("scanResults");
+  if (!box) return;
+  if (!results.length) {
+    box.innerHTML = `<div class="history-empty">No devices responded to the sweep.</div>`;
+    return;
+  }
+  box.innerHTML =
+    `<table class="scan-table">` +
+    results
+      .map(
+        (r) => `<tr>
+          <td class="mono">${esc(r.ip)}</td>
+          <td class="mono">${esc(r.mac || "-")}</td>
+          <td>${esc(r.host || "")}</td>
+          <td style="text-align:right">
+            <button class="btn small primary" data-ip="${esc(r.ip)}"
+                    data-mac="${esc(r.mac || "")}" data-host="${esc(r.host || "")}">Add</button>
+          </td>
+        </tr>`
+      )
+      .join("") +
+    `</table>`;
+  box.querySelectorAll("button[data-ip]").forEach((b) => {
+    b.onclick = () => {
+      closeScan();
+      openDeviceDialog(
+        {
+          name: b.dataset.host || b.dataset.ip,
+          mac: b.dataset.mac,
+          ip: b.dataset.ip,
+          host: BROADCAST,
+          port: 9,
+        },
+        -1
+      );
+    };
+  });
+}
+
 // ---- modal plumbing -----------------------------------------------------
 
 function openModal(title, bodyHtml, actions, extraClass) {
@@ -428,6 +518,11 @@ function openModal(title, bodyHtml, actions, extraClass) {
 
 function closeModal() {
   document.querySelectorAll(".overlay").forEach((o) => o.remove());
+  // Defensively drop scan listeners if a scan modal was open.
+  if (window.runtime) {
+    RT().EventsOff("scan:progress");
+    RT().EventsOff("scan:done");
+  }
 }
 
 // ---- status + live events ----------------------------------------------

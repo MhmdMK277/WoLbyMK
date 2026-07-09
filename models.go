@@ -5,7 +5,7 @@ package main
 
 const (
 	appName          = "WoLmk"
-	appVersion       = "2.0.0"
+	appVersion       = "2.1.0"
 	defaultPort      = 9
 	defaultBroadcast = "255.255.255.255"
 	historyLimit     = 200
@@ -34,6 +34,8 @@ type Device struct {
 	CredHint    string    `json:"credHint"`    // optional note, never a password
 	CmdShutdown string    `json:"cmdShutdown"` // optional custom command
 	CmdSleep    string    `json:"cmdSleep"`    // optional custom command
+	AgentPort   int       `json:"agentPort"`   // optional; WoLmk-Agent TCP port
+	AgentToken  string    `json:"agentToken"`  // optional; WoLmk-Agent auth token
 	AutoWake    bool      `json:"autowake"`
 	Schedule    *Schedule `json:"schedule"`
 }

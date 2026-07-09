@@ -130,6 +130,10 @@ func sanitizeDevice(d Device) (Device, error) {
 	}
 	d.SecureOn = so
 	d.IP = strings.TrimSpace(d.IP)
+	d.AgentToken = strings.TrimSpace(d.AgentToken)
+	if d.AgentPort < 0 || d.AgentPort > 65535 {
+		return d, fmt.Errorf("Agent port must be 1-65535.")
+	}
 	return d, nil
 }
 
@@ -244,7 +248,11 @@ func (a *App) wakeDevice(d Device, announce bool) {
 		appendHistory(entry)
 		a.emitPulse(d.MAC, "ok")
 		if announce {
-			a.emitBar(fmt.Sprintf("%d packet(s) sent to %s", s.SendCount, d.MAC), "ok")
+			msg := fmt.Sprintf("%d packet(s) sent to %s", s.SendCount, d.MAC)
+			if resolved := resolveHost(d.Host); resolved != d.Host && resolved != "" {
+				msg += " via " + resolved
+			}
+			a.emitBar(msg, "ok")
 		}
 		if pingTarget(d) != "" {
 			a.emitStatus(d.MAC, "warn", "Packet sent, waiting for reply...")
@@ -357,18 +365,22 @@ func (a *App) WakeAll() {
 
 // ---- remote power -------------------------------------------------------
 
-func (a *App) Remote(index int, kind string) {
+// Remote runs a power action (shutdown, sleep, reboot, lock). It uses the
+// companion agent when the device has agent credentials, otherwise falls back
+// to the custom or default command template for shutdown and sleep.
+func (a *App) Remote(index int, action string) {
 	d, ok := a.deviceAt(index)
 	if !ok {
 		return
 	}
-	a.emitBar(fmt.Sprintf("Sending %s to %s...", kind, d.Name), "muted")
+	a.emitBar(fmt.Sprintf("Sending %s to %s...", action, d.Name), "muted")
 	go func() {
-		if err := runRemoteCommand(d, kind); err != nil {
-			a.emitBar(fmt.Sprintf("%s failed for %s: %s", title(kind), d.Name, err.Error()), "err")
+		err := performRemote(d, action)
+		if err != nil {
+			a.emitBar(fmt.Sprintf("%s failed for %s: %s", title(action), d.Name, err.Error()), "err")
 			return
 		}
-		a.emitBar(fmt.Sprintf("%s command sent to %s", title(kind), d.Name), "ok")
+		a.emitBar(fmt.Sprintf("%s command sent to %s", title(action), d.Name), "ok")
 	}()
 }
 

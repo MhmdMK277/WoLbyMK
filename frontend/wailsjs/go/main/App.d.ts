@@ -24,6 +24,8 @@ export function Remote(arg1:number,arg2:string):Promise<void>;
 
 export function SaveDeviceList(arg1:Array<main.Device>):Promise<main.Response>;
 
+export function ScanNetwork():Promise<void>;
+
 export function SetSchedule(arg1:number,arg2:main.Schedule):Promise<main.Response>;
 
 export function UpdateDevice(arg1:number,arg2:main.Device):Promise<main.Response>;

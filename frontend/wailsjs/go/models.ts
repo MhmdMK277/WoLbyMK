@@ -32,6 +32,8 @@ export namespace main {
 	    credHint: string;
 	    cmdShutdown: string;
 	    cmdSleep: string;
+	    agentPort: number;
+	    agentToken: string;
 	    autowake: boolean;
 	    schedule?: Schedule;
 	
@@ -52,6 +54,8 @@ export namespace main {
 	        this.credHint = source["credHint"];
 	        this.cmdShutdown = source["cmdShutdown"];
 	        this.cmdSleep = source["cmdSleep"];
+	        this.agentPort = source["agentPort"];
+	        this.agentToken = source["agentToken"];
 	        this.autowake = source["autowake"];
 	        this.schedule = this.convertValues(source["schedule"], Schedule);
 	    }
