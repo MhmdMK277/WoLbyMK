@@ -18,10 +18,13 @@ if errorlevel 1 (
 )
 
 set ICON_ARG=
-if exist assets\wolmk.ico set ICON_ARG=--icon assets\wolmk.ico --add-data "assets\wolmk.ico;assets"
+if exist assets\wolmk.ico set ICON_ARG=--icon assets\wolmk.ico --add-data "assets\wolmk.ico;assets" --add-data "assets\wolmk.png;assets"
 
 echo Building single-file exe...
-python -m PyInstaller --noconfirm --onefile --windowed --name WoLmk %ICON_ARG% wolmk.py
+python -m PyInstaller --noconfirm --onefile --windowed --name WoLmk %ICON_ARG% ^
+    --exclude-module numpy --exclude-module psutil ^
+    --exclude-module charset_normalizer --exclude-module setuptools ^
+    wolmk.py
 if errorlevel 1 (
     echo ERROR: build failed.
     exit /b 1

@@ -4,14 +4,23 @@ A standalone Wake-on-LAN desktop app for Windows. Add your devices once, then wa
 
 ![Main window](docs/screenshot.png)
 
-*The devices, MAC addresses and hostnames shown are fictional sample data, not real values.*
+*The devices, MAC addresses, IPs and hostnames shown are fictional sample data, not real values.*
 
 ## Features
 
-- Device manager: save name, MAC address, host and port. Configs persist between launches.
+- Device manager: save name, MAC address, host, port and an optional device IP. Configs persist between launches.
 - LAN wake: broadcast magic packets on your local network (default `255.255.255.255:9`).
 - WAN wake: target a public IP or DNS name and forwarded port to wake machines remotely.
-- Status feedback: shows whether the packet was sent or failed.
+- Live status checks: after a wake, the app pings the device every 2 seconds for up to 60 seconds and shows the result on the card (waiting, online with round-trip time, or unreachable). A Check button runs a single ping on demand.
+- System tray mode: closing the window minimizes to the tray. The tray menu offers Show, Wake all and Exit.
+- Wake history: every attempt is logged with timestamp, target and outcome. The History button in the footer shows the last 50 entries.
+
+![Wake history](docs/screenshot-history.png)
+
+*History entries shown are fictional sample data.*
+
+- Auto-wake on launch: mark a device "Wake on app start" and WoLmk wakes it every time the app opens. Pairs well with Windows Task Scheduler.
+- Keyboard shortcuts, see below.
 - Single portable `.exe`, no runtime required.
 - CLI mode: `wolmk.exe --send AA:BB:CC:DD:EE:FF [host] [port]` for use in scripts.
 
@@ -19,11 +28,24 @@ A standalone Wake-on-LAN desktop app for Windows. Add your devices once, then wa
 
 *Example placeholder values; enter your own device details here.*
 
+## Keyboard shortcuts
+
+| Shortcut | Action |
+|----------|--------|
+| Ctrl+N | Add device |
+| Ctrl+W or Enter | Wake the selected device (click a card to select it) |
+| Ctrl+A | Wake all devices |
+| Escape | Close the history overlay or a dialog |
+
 ## Download and run
 
 Download the latest `WoLmk.exe` from [Releases](../../releases) and run it.
 
-Device configs are stored in `%APPDATA%\WoLmk\devices.json`.
+Data is stored in `%APPDATA%\WoLmk\`: `devices.json` (your devices), `history.json` (wake log) and optionally `settings.json`. To change the post-wake watch behavior, create `settings.json` with:
+
+```json
+{ "watch_timeout": 60, "watch_interval": 2 }
+```
 
 ## Run from source
 
@@ -31,7 +53,7 @@ Device configs are stored in `%APPDATA%\WoLmk\devices.json`.
 python wolmk.py
 ```
 
-Requires Python 3.9 or newer. Core functionality has no dependencies. If `customtkinter` is installed, the app uses it automatically for a more modern look; this is optional.
+Requires Python 3.9 or newer. Core functionality has no dependencies. Installing `pystray` and `pillow` enables the system tray mode; without them the app simply closes normally.
 
 ## Build the .exe yourself
 

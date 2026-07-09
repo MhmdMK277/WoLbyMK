@@ -13,15 +13,21 @@ import json
 import os
 import re
 import socket
+import subprocess
 import sys
+import threading
+import time
 import tkinter as tk
 import tkinter.font as tkfont
+from datetime import datetime
 from tkinter import messagebox
 
 APP_NAME = "WoLmk"
-APP_VERSION = "1.1.0"
+APP_VERSION = "1.2.0"
 DEFAULT_PORT = 9
 DEFAULT_BROADCAST = "255.255.255.255"
+HISTORY_LIMIT = 200
+HISTORY_SHOWN = 50
 
 # ---------------------------------------------------------------- storage
 
@@ -33,20 +39,53 @@ def config_dir() -> str:
 
 
 CONFIG_FILE = os.path.join(config_dir(), "devices.json")
+HISTORY_FILE = os.path.join(config_dir(), "history.json")
+SETTINGS_FILE = os.path.join(config_dir(), "settings.json")
+
+
+def _load_json(path, default):
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        return data if isinstance(data, type(default)) else default
+    except (OSError, ValueError):
+        return default
 
 
 def load_devices() -> list:
-    try:
-        with open(CONFIG_FILE, "r", encoding="utf-8") as f:
-            data = json.load(f)
-        return data if isinstance(data, list) else []
-    except (OSError, ValueError):
-        return []
+    return _load_json(CONFIG_FILE, [])
 
 
 def save_devices(devices: list) -> None:
     with open(CONFIG_FILE, "w", encoding="utf-8") as f:
         json.dump(devices, f, indent=2)
+
+
+def load_settings() -> dict:
+    settings = {"watch_timeout": 60, "watch_interval": 2}
+    settings.update(_load_json(SETTINGS_FILE, {}))
+    return settings
+
+
+def load_history() -> list:
+    return _load_json(HISTORY_FILE, [])
+
+
+def append_history(entry: dict) -> None:
+    history = load_history()
+    history.append(entry)
+    with open(HISTORY_FILE, "w", encoding="utf-8") as f:
+        json.dump(history[-HISTORY_LIMIT:], f, indent=2)
+
+
+def update_history(entry_id: float, ping_ok: bool) -> None:
+    history = load_history()
+    for entry in reversed(history):
+        if entry.get("id") == entry_id:
+            entry["ping"] = ping_ok
+            break
+    with open(HISTORY_FILE, "w", encoding="utf-8") as f:
+        json.dump(history, f, indent=2)
 
 # ---------------------------------------------------------------- WOL core
 
@@ -77,6 +116,40 @@ def send_magic_packet(mac: str, host: str = DEFAULT_BROADCAST,
         sock.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
         sock.sendto(packet, (host, port))
 
+
+def ping_host(host: str, timeout_ms: int = 1000):
+    """One ICMP echo via the system ping tool. Returns (online, rtt_ms)."""
+    if sys.platform == "win32":
+        cmd = ["ping", "-n", "1", "-w", str(timeout_ms), host]
+        flags = 0x08000000  # CREATE_NO_WINDOW
+    else:
+        cmd = ["ping", "-c", "1", "-W", str(max(1, timeout_ms // 1000)), host]
+        flags = 0
+    try:
+        proc = subprocess.run(cmd, capture_output=True, text=True,
+                              timeout=timeout_ms / 1000 + 3,
+                              creationflags=flags)
+    except (OSError, subprocess.TimeoutExpired):
+        return False, None
+    out = proc.stdout or ""
+    # On Windows exit code 0 can still mean "unreachable"; TTL= marks a reply
+    online = proc.returncode == 0 and (
+        "TTL=" in out.upper() or sys.platform != "win32")
+    if not online:
+        return False, None
+    match = re.search(r"time[=<]\s*(\d+(?:\.\d+)?)\s*ms", out, re.IGNORECASE)
+    return True, (float(match.group(1)) if match else None)
+
+
+def ping_target(device: dict):
+    """The address used for status checks: explicit IP, else a non-broadcast host."""
+    ip = device.get("ip", "").strip()
+    if ip:
+        return ip
+    if device["host"] != DEFAULT_BROADCAST:
+        return device["host"]
+    return None
+
 # ---------------------------------------------------------------- theme
 
 C = {
@@ -93,9 +166,12 @@ C = {
     "muted":    "#9aa3b5",
     "faint":    "#5d6575",
     "ok":       "#45d18c",
+    "warn":     "#e8c35a",
     "err":      "#f0645c",
     "err_bg":   "#2a1c1e",
 }
+STATE_COLORS = {"ok": C["ok"], "warn": C["warn"], "err": C["err"],
+                "muted": C["faint"]}
 
 
 def resource_path(rel: str) -> str:
@@ -136,6 +212,7 @@ class Fonts:
         self.body = (ui, 10)
         self.strong = (ui, 10, "bold")
         self.small = (ui, 9)
+        self.tiny = (ui, 8)
         self.eyebrow = (ui, 8, "bold")
         self.mono = (mono, 9)
         self.mono_small = (mono, 8)
@@ -209,68 +286,107 @@ class Pill(tk.Canvas):
 
 
 class DeviceCard(tk.Canvas):
-    """One device row: LED, name, technical meta line, actions."""
+    """One device row: LED, name, technical meta, live status, actions."""
 
-    HEIGHT = 66
+    HEIGHT = 82
 
     def __init__(self, parent, app, index, device):
         super().__init__(parent, height=self.HEIGHT, bg=C["base"],
                          highlightthickness=0, bd=0)
         self.app, self.index, self.device = app, index, device
-        self.hovered = False
+        self.state_kind, self.state_text = "muted", ""
         self.buttons = [
             Pill(self, "Wake", lambda: app.wake(self), kind="primary",
                  font=app.fonts.strong, bg=C["surface"]),
-            Pill(self, "Edit", lambda: app.edit_device(index),
+            Pill(self, "Check", lambda: app.check(self),
                  font=app.fonts.small, bg=C["surface"]),
-            Pill(self, "Remove", lambda: app.delete_device(index), kind="danger",
+            Pill(self, "Edit", lambda: app.edit_device(self.index),
                  font=app.fonts.small, bg=C["surface"]),
+            Pill(self, "Remove", lambda: app.delete_device(self.index),
+                 kind="danger", font=app.fonts.small, bg=C["surface"]),
         ]
         self.bind("<Configure>", lambda e: self._draw())
         self.bind("<Enter>", lambda e: self._hover(True))
         self.bind("<Leave>", self._maybe_unhover)
+        self.bind("<Button-1>", lambda e: app.select(self.index))
+
+    @property
+    def selected(self):
+        return self.app.selected == self.index
 
     def _hover(self, on):
         self.hovered = on
+        self._paint_frame()
         fill = C["raise"] if on else C["surface"]
-        line = C["line_hi"] if on else C["line"]
-        self.itemconfigure(self.bg, fill=fill, outline=line)
         for b in self.buttons:
             b.configure(bg=fill)
+
+    def _paint_frame(self):
+        on = getattr(self, "hovered", False)
+        fill = C["raise"] if on else C["surface"]
+        line = C["accent"] if self.selected else (C["line_hi"] if on else C["line"])
+        self.itemconfigure(self.bg, fill=fill, outline=line)
 
     def _maybe_unhover(self, event):
         if not (0 <= event.x < self.winfo_width() and 0 <= event.y < self.winfo_height()):
             self._hover(False)
+
+    @staticmethod
+    def _fit(text, font, avail):
+        """Trim text with an ellipsis so it fits in avail pixels."""
+        measure = tkfont.Font(font=font).measure
+        if measure(text) <= avail:
+            return text
+        while text and measure(text + "...") > avail:
+            text = text[:-1]
+        return text + "..."
 
     def _draw(self):
         self.delete("all")
         w, h, dev, f = self.winfo_width(), self.HEIGHT, self.device, self.app.fonts
         self.bg = draw_round_rect(self, 1, 2, w - 2, h - 3, 14,
                                   fill=C["surface"], outline=C["line"])
-        self.led = self.create_oval(22, h // 2 - 4, 30, h // 2 + 4,
-                                    fill=C["faint"], outline="")
-        self.create_text(46, 22, text=dev["name"], font=f.strong,
-                         fill=C["text"], anchor="w")
+        self.led = self.create_oval(22, 20, 30, 28,
+                                    fill=STATE_COLORS[self.state_kind], outline="")
+        buttons_w = sum(int(b["width"]) + 8 for b in self.buttons) + 14
+        avail = max(60, w - 46 - buttons_w - 10)
+        self.create_text(46, 24, text=self._fit(dev["name"], f.strong, avail),
+                         font=f.strong, fill=C["text"], anchor="w")
         wan = dev["host"] != DEFAULT_BROADCAST
         target = f"{dev['host']}  WAN" if wan else "LAN broadcast"
         meta = f"{dev['mac']}   {target}   :{dev['port']}"
-        self.create_text(46, 44, text=meta, font=f.mono, fill=C["muted"],
-                         anchor="w")
+        self.create_text(46, 45, text=self._fit(meta, f.mono, avail),
+                         font=f.mono, fill=C["muted"], anchor="w")
+        self.status_item = self.create_text(
+            46, 64, text=self._fit(self.state_text, f.tiny, avail), font=f.tiny,
+            fill=STATE_COLORS[self.state_kind], anchor="w")
         x = w - 14
         for b in self.buttons:
             self.create_window(x, h // 2, window=b, anchor="e")
             x -= int(b["width"]) + 8
+        self._paint_frame()
+
+    def set_state(self, kind, text):
+        """Update the LED and status line. Safe to call for a dead card."""
+        if not self.winfo_exists():
+            return
+        self.state_kind, self.state_text = kind, text
+        buttons_w = sum(int(b["width"]) + 8 for b in self.buttons) + 14
+        avail = max(60, self.winfo_width() - 46 - buttons_w - 10)
+        self.itemconfigure(self.led, fill=STATE_COLORS[kind])
+        self.itemconfigure(self.status_item, fill=STATE_COLORS[kind],
+                           text=self._fit(text, self.app.fonts.tiny, avail))
 
     def pulse(self, color):
         """Expanding ring from the LED: the packet leaving the app."""
-        self.itemconfigure(self.led, fill=color)
-        cx, cy = 26, self.HEIGHT // 2
+        cx, cy = 26, 24
         ring = self.create_oval(cx, cy, cx, cy, outline=color, width=2)
 
         def step(i=0):
+            if not self.winfo_exists():
+                return
             if i > 10:
                 self.delete(ring)
-                self.after(2500, lambda: self.itemconfigure(self.led, fill=C["faint"]))
                 return
             r = 4 + i * 2.2
             self.coords(ring, cx - r, cy - r, cx + r, cy + r)
@@ -279,7 +395,7 @@ class DeviceCard(tk.Canvas):
 
         step()
 
-# ---------------------------------------------------------------- dialog
+# ---------------------------------------------------------------- dialogs
 
 class DeviceDialog(tk.Toplevel):
     """Add/edit device modal. Result in self.result (dict) or None."""
@@ -303,6 +419,8 @@ class DeviceDialog(tk.Toplevel):
              "255.255.255.255 for LAN, public IP or DNS name for WAN", f.mono),
             ("PORT", str(device.get("port", DEFAULT_PORT)),
              "9 is standard; use your forwarded port for WAN", f.mono),
+            ("DEVICE IP", device.get("ip", ""),
+             "Optional; used to ping the device for status checks", f.mono),
         ]
         self.entries = {}
         for row, (label, value, hint, font) in enumerate(fields):
@@ -321,8 +439,16 @@ class DeviceDialog(tk.Toplevel):
                 row=row * 3 + 2, column=0, sticky="w", pady=(3, 0))
             self.entries[label] = entry
 
+        self.autowake = tk.BooleanVar(value=bool(device.get("autowake")))
+        check = tk.Checkbutton(
+            self, text="Wake on app start", variable=self.autowake,
+            font=f.small, bg=C["base"], fg=C["muted"], activebackground=C["base"],
+            activeforeground=C["text"], selectcolor=C["surface"],
+            highlightthickness=0, bd=0, anchor="w", cursor="hand2")
+        check.grid(row=15, column=0, sticky="w", pady=(16, 0))
+
         btns = tk.Frame(self, bg=C["base"])
-        btns.grid(row=12, column=0, sticky="e", pady=(22, 0))
+        btns.grid(row=16, column=0, sticky="e", pady=(20, 0))
         Pill(btns, "Cancel", self.destroy, font=f.small,
              bg=C["base"]).pack(side="left", padx=(0, 8))
         Pill(btns, "Save device", self._save, kind="primary",
@@ -337,6 +463,7 @@ class DeviceDialog(tk.Toplevel):
         mac = self.entries["MAC ADDRESS"].get().strip()
         host = self.entries["HOST"].get().strip() or DEFAULT_BROADCAST
         port_s = self.entries["PORT"].get().strip() or str(DEFAULT_PORT)
+        ip = self.entries["DEVICE IP"].get().strip()
         if not name:
             messagebox.showerror(APP_NAME, "Name is required.", parent=self)
             return
@@ -354,8 +481,59 @@ class DeviceDialog(tk.Toplevel):
         except ValueError:
             messagebox.showerror(APP_NAME, "Port must be 1-65535.", parent=self)
             return
-        self.result = {"name": name, "mac": mac, "host": host, "port": port}
+        self.result = {"name": name, "mac": mac, "host": host, "port": port,
+                       "ip": ip, "autowake": self.autowake.get()}
         self.destroy()
+
+
+class HistoryOverlay(tk.Frame):
+    """Scrollable overlay listing recent wake attempts."""
+
+    def __init__(self, app):
+        super().__init__(app, bg=C["base"])
+        self.place(relx=0, rely=0, relwidth=1, relheight=1)
+        f = app.fonts
+        panel = tk.Frame(self, bg=C["surface"], highlightthickness=1,
+                         highlightbackground=C["line_hi"])
+        panel.place(relx=0.5, rely=0.5, anchor="center",
+                    relwidth=0.88, relheight=0.82)
+        head = tk.Frame(panel, bg=C["surface"])
+        head.pack(fill="x", padx=18, pady=(14, 8))
+        tk.Label(head, text="Wake history", font=f.strong, bg=C["surface"],
+                 fg=C["text"]).pack(side="left")
+        Pill(head, "Close", self.destroy, font=f.small,
+             bg=C["surface"]).pack(side="right")
+
+        text = tk.Text(panel, bg=C["surface"], fg=C["muted"], font=f.mono,
+                       relief="flat", bd=0, highlightthickness=0, wrap="none",
+                       cursor="arrow", padx=18, pady=4, spacing3=6)
+        scroll = tk.Scrollbar(panel, orient="vertical", command=text.yview,
+                              width=6, relief="flat", bd=0,
+                              elementborderwidth=0, bg=C["line_hi"],
+                              troughcolor=C["surface"],
+                              activebackground=C["accent"])
+        text.configure(yscrollcommand=scroll.set)
+        scroll.pack(side="right", fill="y", pady=(0, 14))
+        text.pack(fill="both", expand=True, pady=(0, 14))
+        for tag, color in (("sent", C["ok"]), ("failed", C["err"]),
+                           ("ok", C["ok"]), ("timeout", C["err"]),
+                           ("dim", C["faint"])):
+            text.tag_configure(tag, foreground=color)
+
+        entries = load_history()[-HISTORY_SHOWN:]
+        if not entries:
+            text.insert("end", "No wake attempts recorded yet.", "dim")
+        for e in reversed(entries):
+            ping = e.get("ping")
+            ping_txt, ping_tag = (
+                ("came online", "ok") if ping is True else
+                ("no reply", "timeout") if ping is False else ("", "dim"))
+            text.insert("end", f"{e.get('ts', '')}  ", "dim")
+            text.insert("end", f"{e.get('device', ''):<16.16}  ")
+            text.insert("end", f"{e.get('result', ''):<6}", e.get("result", "dim"))
+            text.insert("end", f"  {e.get('target', ''):<20.20}  ", "dim")
+            text.insert("end", f"{ping_txt}\n", ping_tag)
+        text.configure(state="disabled")
 
 # ---------------------------------------------------------------- main app
 
@@ -364,8 +542,8 @@ class WolApp(tk.Tk):
         super().__init__()
         self.title(APP_NAME)
         self.configure(bg=C["base"])
-        self.geometry("640x520")
-        self.minsize(560, 420)
+        self.geometry("700x540")
+        self.minsize(620, 440)
         self.fonts = Fonts(self)
         dark_titlebar(self)
         try:
@@ -373,10 +551,21 @@ class WolApp(tk.Tk):
             self.iconbitmap(default=resource_path(os.path.join("assets", "wolmk.ico")))
         except tk.TclError:
             pass
+        self.alive = True
+        self.selected = None
         self.devices = load_devices()
+        self.settings = load_settings()
         self.cards = []
+        self.overlay = None
+        self.tray = None
         self._build_ui()
         self.render()
+        self._bind_shortcuts()
+        self._setup_tray()
+        self.protocol("WM_DELETE_WINDOW", self._on_close)
+        self.after(600, self._autowake)
+
+    # ------------------------------------------------------------ layout
 
     def _build_ui(self):
         f = self.fonts
@@ -420,7 +609,7 @@ class WolApp(tk.Tk):
         footer.pack(fill="x", side="bottom")
         tk.Frame(footer, bg=C["line"], height=1).pack(fill="x")
         inner = tk.Frame(footer, bg=C["surface"])
-        inner.pack(fill="x", padx=24, pady=7)
+        inner.pack(fill="x", padx=24, pady=6)
         self.status_dot = tk.Canvas(inner, width=8, height=8, bg=C["surface"],
                                     highlightthickness=0, bd=0)
         self._dot = self.status_dot.create_oval(1, 1, 7, 7, fill=C["faint"],
@@ -430,7 +619,9 @@ class WolApp(tk.Tk):
                                bg=C["surface"], fg=C["muted"], anchor="w")
         self.status.pack(side="left", padx=(8, 0))
         tk.Label(inner, text=f"v{APP_VERSION}", font=f.mono_small,
-                 bg=C["surface"], fg=C["faint"]).pack(side="right")
+                 bg=C["surface"], fg=C["faint"]).pack(side="right", padx=(12, 0))
+        Pill(inner, "History", self.show_history, font=f.small,
+             bg=C["surface"], height=24, padx=10).pack(side="right")
 
     def _sync_scroll(self, _event=None):
         self.canvas.configure(scrollregion=self.canvas.bbox("all"))
@@ -466,6 +657,41 @@ class WolApp(tk.Tk):
         tk.Label(box, text="Add a device and wake it from here.",
                  font=self.fonts.small, bg=C["base"], fg=C["muted"]).pack()
 
+    # ------------------------------------------------------- interaction
+
+    def _bind_shortcuts(self):
+        self.bind("<Control-n>", lambda e: self.add_device())
+        self.bind("<Control-w>", lambda e: self._wake_selected())
+        self.bind("<Return>", lambda e: self._wake_selected())
+        self.bind("<Control-a>", lambda e: self.wake_all())
+        self.bind("<Escape>", lambda e: self._dismiss_overlay())
+
+    def select(self, index):
+        self.selected = None if self.selected == index else index
+        for card in self.cards:
+            card._paint_frame()
+
+    def _wake_selected(self):
+        if self.selected is not None and self.selected < len(self.cards):
+            self.wake(self.cards[self.selected])
+
+    def _dismiss_overlay(self):
+        if self.overlay and self.overlay.winfo_exists():
+            self.overlay.destroy()
+        self.overlay = None
+
+    def show_history(self):
+        self._dismiss_overlay()
+        self.overlay = HistoryOverlay(self)
+
+    def ui(self, fn):
+        """Run fn on the Tk thread; ignore if the app is shutting down."""
+        if self.alive:
+            try:
+                self.after(0, fn)
+            except tk.TclError:
+                pass
+
     # ----------------------------------------------------------- actions
 
     def add_device(self):
@@ -491,26 +717,130 @@ class WolApp(tk.Tk):
         if messagebox.askyesno(APP_NAME, f"Remove {dev['name']}?", parent=self):
             del self.devices[index]
             save_devices(self.devices)
+            self.selected = None
             self.render()
             self.set_status(f"Removed {dev['name']}")
 
     def wake(self, card):
         dev = card.device
+        entry = {"id": time.time(),
+                 "ts": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                 "device": dev["name"], "mac": dev["mac"],
+                 "target": f"{dev['host']}:{dev['port']}",
+                 "result": "sent", "ping": None}
         try:
             send_magic_packet(dev["mac"], dev["host"], dev["port"])
         except Exception as exc:
+            entry["result"] = "failed"
+            append_history(entry)
             card.pulse(C["err"])
+            card.set_state("err", f"Send failed: {exc}")
             self.set_status(f"Failed to wake {dev['name']}: {exc}", "err")
             return
+        append_history(entry)
         card.pulse(C["ok"])
         self.set_status(
             f"Magic packet sent to {dev['name']} ({dev['host']}:{dev['port']})", "ok")
+        target = ping_target(dev)
+        if target:
+            card.set_state("warn", "Packet sent, waiting for reply...")
+            threading.Thread(target=self._watch, args=(card, target, entry["id"]),
+                             daemon=True).start()
+        else:
+            card.set_state("muted", "Sent; set a device IP to track status")
+
+    def _watch(self, card, target, entry_id):
+        """Ping the device until it answers or the watch times out."""
+        interval = max(1, int(self.settings.get("watch_interval", 2)))
+        timeout = max(interval, int(self.settings.get("watch_timeout", 60)))
+        deadline = time.monotonic() + timeout
+        while self.alive and time.monotonic() < deadline:
+            online, rtt = ping_host(target)
+            if online:
+                stamp = datetime.now().strftime("%H:%M:%S")
+                rtt_txt = f"{rtt:.0f} ms, " if rtt is not None else ""
+                self.ui(lambda: card.set_state("ok", f"Online, {rtt_txt}{stamp}"))
+                update_history(entry_id, True)
+                return
+            time.sleep(interval)
+        if self.alive:
+            self.ui(lambda: card.set_state("err", f"Unreachable after {timeout} s"))
+            update_history(entry_id, False)
+
+    def check(self, card):
+        """Manual one-shot status check."""
+        target = ping_target(card.device)
+        if not target:
+            card.set_state("err", "No device IP set; edit the device to add one")
+            return
+        card.set_state("warn", f"Pinging {target}...")
+
+        def run():
+            online, rtt = ping_host(target)
+            stamp = datetime.now().strftime("%H:%M:%S")
+            if online:
+                rtt_txt = f"{rtt:.0f} ms, " if rtt is not None else ""
+                self.ui(lambda: card.set_state("ok", f"Online, {rtt_txt}{stamp}"))
+            else:
+                self.ui(lambda: card.set_state("err", f"Offline, {stamp}"))
+
+        threading.Thread(target=run, daemon=True).start()
+
+    def wake_all(self):
+        if not self.cards:
+            return
+        for card in self.cards:
+            self.wake(card)
+        self.set_status(f"Woke {len(self.cards)} device(s)", "ok")
+
+    def _autowake(self):
+        for card in self.cards:
+            if card.device.get("autowake"):
+                self.wake(card)
 
     def set_status(self, text, kind="muted"):
         color = {"ok": C["ok"], "err": C["err"], "muted": C["muted"]}[kind]
         self.status.configure(text=text, fg=color)
         self.status_dot.itemconfigure(
             self._dot, fill=color if kind != "muted" else C["faint"])
+
+    # -------------------------------------------------------------- tray
+
+    def _setup_tray(self):
+        try:
+            import pystray
+            from PIL import Image
+        except ImportError:
+            return
+        try:
+            image = Image.open(resource_path(os.path.join("assets", "wolmk.png")))
+        except OSError:
+            return
+        menu = pystray.Menu(
+            pystray.MenuItem("Show", lambda *a: self.ui(self._show_window),
+                             default=True),
+            pystray.MenuItem("Wake all", lambda *a: self.ui(self.wake_all)),
+            pystray.MenuItem("Exit", lambda *a: self.ui(self.quit_app)))
+        self.tray = pystray.Icon(APP_NAME, image, APP_NAME, menu)
+        threading.Thread(target=self.tray.run, daemon=True).start()
+
+    def _show_window(self):
+        self.deiconify()
+        self.lift()
+        self.focus_force()
+
+    def _on_close(self):
+        if self.tray:
+            self.withdraw()
+            self.set_status("Running in the system tray")
+        else:
+            self.quit_app()
+
+    def quit_app(self):
+        self.alive = False
+        if self.tray:
+            self.tray.stop()
+        self.destroy()
 
 
 def main():
