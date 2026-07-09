@@ -4,6 +4,8 @@ A standalone Wake-on-LAN desktop app for Windows. Add your devices once, then wa
 
 ![Main window](docs/screenshot.png)
 
+*The devices, MAC addresses and hostnames shown are fictional sample data, not real values.*
+
 ## Features
 
 - Device manager: save name, MAC address, host and port. Configs persist between launches.
@@ -14,6 +16,8 @@ A standalone Wake-on-LAN desktop app for Windows. Add your devices once, then wa
 - CLI mode: `wolmk.exe --send AA:BB:CC:DD:EE:FF [host] [port]` for use in scripts.
 
 ![Add device dialog](docs/screenshot-add-device.png)
+
+*Example placeholder values; enter your own device details here.*
 
 ## Download and run
 
