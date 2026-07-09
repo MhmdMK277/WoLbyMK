@@ -2,7 +2,7 @@
 
 A standalone Wake-on-LAN desktop app for Windows. Add your devices once, then wake them with a single click, either on your local network or over the internet.
 
-![screenshot placeholder](docs/screenshot.png)
+![Main window](docs/screenshot.png)
 
 ## Features
 
@@ -12,6 +12,8 @@ A standalone Wake-on-LAN desktop app for Windows. Add your devices once, then wa
 - Status feedback: shows whether the packet was sent or failed.
 - Single portable `.exe`, no runtime required.
 - CLI mode: `wolmk.exe --send AA:BB:CC:DD:EE:FF [host] [port]` for use in scripts.
+
+![Add device dialog](docs/screenshot-add-device.png)
 
 ## Download and run
 
