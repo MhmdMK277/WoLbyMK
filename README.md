@@ -77,7 +77,62 @@ It holds `devices.json` (devices and schedules), `history.json` (wake log) and o
 3. Optionally set a **Device IP** so WoLmk can ping the machine and report when it comes online, or a **Service port** to check a TCP port instead.
 4. Click **Wake**. The status line and LED update as the device responds.
 
-For the target to wake, enable Wake-on-LAN in its BIOS/UEFI and network adapter power settings, and use a wired connection where possible.
+For the target to wake, Wake-on-LAN must be enabled on that machine first. See the next section.
+
+## Setting up Wake-on-LAN on a target machine
+
+Wake-on-LAN is a feature of the target computer, not of WoLmk. Before a device can be woken it needs WoL enabled in two places: the firmware (BIOS/UEFI) and the operating system's network adapter settings. Use a wired Ethernet connection where possible; most Wi-Fi adapters do not support WoL, or support it unreliably.
+
+### 1. Enable it in the BIOS/UEFI
+
+1. Reboot the machine and enter firmware setup (usually `Del`, `F2` or `F10` during boot).
+2. Look under **Power**, **Advanced** or **APM** for a setting named **Wake on LAN**, **Power On By PCI-E/PCI**, **Resume by LAN** or similar, and enable it.
+3. If there is an **ErP** or **EuP** deep power saving option, disable it — it cuts power to the network card when the machine is off, which prevents WoL.
+4. Save and exit.
+
+### 2. Enable it in the operating system
+
+**Windows**
+
+1. Open **Device Manager** → **Network adapters** → double-click your Ethernet adapter.
+2. On the **Power Management** tab, check **Allow this device to wake the computer** and **Only allow a magic packet to wake the computer**.
+3. On the **Advanced** tab, set **Wake on Magic Packet** to **Enabled** (some drivers also have **Shutdown Wake-On-Lan** — enable it too).
+4. Turn off Fast Startup so shutdown leaves the adapter armed: **Control Panel** → **Power Options** → **Choose what the power buttons do** → uncheck **Turn on fast startup**.
+
+**Linux**
+
+1. Check current support: `sudo ethtool eth0` (replace `eth0` with your interface). `Supports Wake-on: g` means magic packets are supported; `Wake-on: g` means it is already enabled.
+2. Enable it: `sudo ethtool -s eth0 wol g`. This resets on reboot, so make it persistent with your distro's mechanism — for example a systemd service, a NetworkManager connection property (`nmcli c modify "Wired connection 1" 802-3-ethernet.wake-on-lan magic`), or `/etc/network/interfaces` post-up hook.
+
+**macOS**
+
+1. Open **System Settings** → **Energy** (or **Battery** → **Options** on laptops) and enable **Wake for network access**. Note that Macs generally wake from sleep, not from a full shutdown.
+
+### 3. Find the MAC address
+
+- Windows: `ipconfig /all` — the adapter's **Physical Address**.
+- Linux: `ip link` — the `link/ether` value.
+- macOS: **System Settings** → **Network** → adapter details, or `ifconfig en0`.
+
+Or skip this step entirely: WoLmk's **Scan network** discovers devices on your subnet and fills in the MAC for you.
+
+### 4. Test it
+
+Add the device in WoLmk, shut the target down (or put it to sleep), and click **Wake**. If you set a **Device IP**, the card's status line shows when the machine comes online. If it does not wake:
+
+- Confirm the machine's Ethernet link LED stays lit while it is powered off — if it is dark, revisit the BIOS ErP/deep sleep settings.
+- Try waking from sleep before waking from full shutdown; some adapters only support the former.
+- Make sure you are on the same subnet, or set up WAN wake (below) if you are not.
+
+### Waking over the internet (WAN wake)
+
+To wake a machine from outside its network:
+
+1. Give the target a static IP or DHCP reservation on the router.
+2. On the router, forward a UDP port (commonly 9) to the network's **broadcast address** (e.g. `192.168.1.255`). Many routers refuse to forward to a broadcast address; if yours does, forwarding to the device's reserved IP can work as long as its ARP entry has not expired, but a router that supports broadcast forwarding is far more reliable.
+3. In WoLmk, set the device's **Host** to your public IP or a DDNS hostname (WoLmk resolves DNS names before sending) and the **Port** to the one you forwarded.
+
+Alternatively, keep one always-on machine (such as a Raspberry Pi) on the LAN running WoLmk in [web server mode](#web-server-mode) and trigger wakes through its REST API — this avoids the broadcast forwarding problem entirely.
 
 ## Companion agent
 
