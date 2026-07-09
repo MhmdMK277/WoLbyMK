@@ -59,6 +59,12 @@ jobs:
         if: runner.os == 'Linux'
         run: zip -j "${{ matrix.build.zip }}" "${{ matrix.build.binary }}"
 
+      # Ad-hoc signature so Gatekeeper's right-click Open works without
+      # clearing the quarantine flag by hand
+      - name: Ad-hoc sign app bundle (macOS)
+        if: runner.os == 'macOS'
+        run: codesign --force --deep --sign - "${{ matrix.build.binary }}"
+
       - name: Zip app bundle (macOS)
         if: runner.os == 'macOS'
         run: ditto -c -k --keepParent "${{ matrix.build.binary }}" "${{ matrix.build.zip }}"
