@@ -58,7 +58,16 @@
 
 ## Download
 
-Grab the latest `WoLmk.exe` (desktop app) and `WoLmk-Agent.exe` (companion service) for Windows from the [Releases](https://github.com/MhmdMK277/WoLbyMK/releases) page. No installer or runtime is required. macOS and Linux users can build from source (see below).
+Every release ships prebuilt binaries for the desktop app and the companion agent on all supported platforms. Grab the two files for your platform from the [latest release](https://github.com/MhmdMK277/WoLbyMK/releases/latest):
+
+| Platform | Desktop app | Companion agent |
+|----------|-------------|-----------------|
+| Windows (x64) | [WoLmk-windows-amd64.exe](https://github.com/MhmdMK277/WoLbyMK/releases/latest/download/WoLmk-windows-amd64.exe) | [WoLmk-Agent-windows-amd64.exe](https://github.com/MhmdMK277/WoLbyMK/releases/latest/download/WoLmk-Agent-windows-amd64.exe) |
+| Linux (x64) | [WoLmk-linux-amd64](https://github.com/MhmdMK277/WoLbyMK/releases/latest/download/WoLmk-linux-amd64) | [WoLmk-Agent-linux-amd64](https://github.com/MhmdMK277/WoLbyMK/releases/latest/download/WoLmk-Agent-linux-amd64) |
+| macOS (Intel) | [WoLmk-darwin-amd64](https://github.com/MhmdMK277/WoLbyMK/releases/latest/download/WoLmk-darwin-amd64) | [WoLmk-Agent-darwin-amd64](https://github.com/MhmdMK277/WoLbyMK/releases/latest/download/WoLmk-Agent-darwin-amd64) |
+| macOS (Apple Silicon) | [WoLmk-darwin-arm64](https://github.com/MhmdMK277/WoLbyMK/releases/latest/download/WoLmk-darwin-arm64) | [WoLmk-Agent-darwin-arm64](https://github.com/MhmdMK277/WoLbyMK/releases/latest/download/WoLmk-Agent-darwin-arm64) |
+
+No installer or runtime is required. On Linux and macOS, mark the files executable after downloading: `chmod +x WoLmk-*`. You can also build from source (see below).
 
 Configuration lives in the OS application data directory:
 
