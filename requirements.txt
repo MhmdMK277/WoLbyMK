@@ -1,8 +1,0 @@
-# Core app has NO required dependencies (stdlib only: tkinter, socket, json).
-
-# Optional: system tray support (app closes normally without them)
-pystray>=0.19
-pillow>=10.0
-
-# Build-time only: .exe packaging
-pyinstaller>=6.0

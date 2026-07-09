@@ -1,31 +1,47 @@
-# WoLmk
+<p align="center">
+  <img src="assets/logo.svg" alt="WoLmk" width="320"/>
+</p>
 
-A standalone Wake-on-LAN desktop app for Windows. Add your devices once, then wake them with a single click, either on your local network or over the internet. WoLmk also confirms a device came online, runs on a schedule, and can send remote power commands to machines you manage.
+<p align="center">
+  <a href="https://github.com/MhmdMK277/WoLbyMK/releases"><img src="https://img.shields.io/github/v/release/MhmdMK277/WoLbyMK?color=8b7cf7" alt="Release"/></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue" alt="License: MIT"/></a>
+  <img src="https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-8b7cf7" alt="Platform"/>
+  <img src="https://img.shields.io/badge/Go-1.26-00ADD8?logo=go&logoColor=white" alt="Go"/>
+  <img src="https://img.shields.io/badge/built%20with-Wails-df0000" alt="Wails"/>
+</p>
+
+<p align="center">
+  A fast, single binary Wake-on-LAN desktop app. Add your devices once, then wake them, watch them come online, schedule wakes, and send remote power commands, all from a clean dark interface.
+</p>
+
+---
+
+## Features
+
+- Device manager: name, MAC, broadcast host, port, optional device IP, service port, SecureOn password, username and credential hint. Configs persist between launches.
+- LAN wake over UDP broadcast, and WAN wake to a public IP or DNS name and forwarded port.
+- Repeat wake: each wake sends a configurable number of magic packets a short interval apart.
+- Live status checks: after a wake, WoLmk pings the device and shows the result on the card (waiting, online with round-trip time, or unreachable). A Check button runs a single probe on demand.
+- Custom TCP port checks: set a service port and status checks use a TCP connect to that port instead of ICMP.
+- SecureOn password: optional 6 hex byte password appended to the magic packet.
+- Scheduled wake: repeating (weekdays and time) or one-time (date and time). A background loop runs every 30 seconds, schedules survive restarts, and a clock icon marks scheduled devices.
+- Remote power: per-device Shutdown and Sleep buttons with editable command templates ({ip} and {user} placeholders). Defaults use Windows PowerShell remoting; power users can set SSH or any command.
+- Wake all with a staggered delay between devices and live progress.
+- Auto-wake on launch: per-device toggle.
+- Wake history: the last 50 attempts are logged and viewable in an overlay.
+- Import and export device configs through native file dialogs.
+- System tray: closing the window minimizes to the tray, with a Show, Wake all and Exit menu.
+- Keyboard shortcuts: Ctrl+N add, Ctrl+W wake selected, Ctrl+A wake all, Escape close dialogs.
+- CLI mode for scripts and schedulers.
+- Cross-platform: Windows, macOS and Linux, with per-OS ping flag detection.
+
+## Screenshots
 
 ![Main window](docs/screenshot.png)
 
 *The devices, MAC addresses, IPs and hostnames shown are fictional sample data, not real values.*
 
-## Features
-
-- Device manager: save name, MAC address, host, port and optional details. Configs persist between launches.
-- LAN wake: broadcast magic packets on your local network (default `255.255.255.255:9`).
-- WAN wake: target a public IP or DNS name and forwarded port to wake machines remotely.
-- Live status checks: after a wake, WoLmk pings the device and shows the result on the card (waiting, online with round-trip time, or unreachable). A Check button runs a single probe on demand.
-- Custom port checks: set a Service port and status checks use a TCP connect to that port instead of ICMP, shown as "Online (port 9100), 3 ms".
-- Repeat wake: each wake sends several packets a short interval apart for reliability (configurable).
-- SecureOn password: optional 6 hex byte password appended to the magic packet for NICs that require it.
-- Remote power commands: optional Shutdown and Sleep buttons per device. Defaults use Windows PowerShell remoting; power users can set any command (SSH, custom scripts) in the Advanced section.
-- Scheduled wake: give a device a repeating (days plus time) or one-time (date plus time) schedule. Schedules run in the background and survive restarts. A clock icon marks scheduled devices.
-- System tray mode: closing the window minimizes to the tray (Show, Wake all, Exit).
-- Wake history: every attempt is logged and viewable from the History button (last 50 entries).
-- Import and export devices from the Data menu in the footer.
-- Auto-wake on launch: mark a device "Wake on app start" to wake it whenever WoLmk opens.
-- Keyboard shortcuts, see below.
-- Single portable `.exe`, no runtime required.
-- CLI mode: `wolmk.exe --send AA:BB:CC:DD:EE:FF [host] [port]` for use in scripts.
-
-![Add or edit device](docs/screenshot-add-device.png)
+![Add or edit device](docs/screenshot-device.png)
 
 *Example placeholder values; enter your own device details here.*
 
@@ -37,33 +53,28 @@ A standalone Wake-on-LAN desktop app for Windows. Add your devices once, then wa
 
 *History entries shown are fictional sample data.*
 
-## Keyboard shortcuts
+## Download
 
-| Shortcut | Action |
-|----------|--------|
-| Ctrl+N | Add device |
-| Ctrl+W or Enter | Wake the selected device (click a card to select it) |
-| Ctrl+A | Wake all devices |
-| Escape | Close the history overlay or a dialog |
+Grab the latest `WoLmk.exe` for Windows from the [Releases](https://github.com/MhmdMK277/WoLbyMK/releases) page and run it. No installer or runtime is required. macOS and Linux users can build from source (see below).
 
-## Remote shutdown and sleep
+Configuration lives in the OS application data directory:
 
-Each device can send a remote power command. The defaults target Windows machines over PowerShell remoting:
+| Platform | Location |
+|----------|----------|
+| Windows | `%APPDATA%\WoLmk\` |
+| macOS | `~/Library/Application Support/wolmk/` |
+| Linux | `~/.config/wolmk/` |
 
-- Shutdown: `powershell -Command "Stop-Computer -ComputerName {ip} -Force"`
-- Sleep: `powershell -Command "Invoke-Command -ComputerName {ip} -ScriptBlock { rundll32.exe powrprof.dll,SetSuspendState 0,1,0 }"`
+It holds `devices.json` (devices and schedules), `history.json` (wake log) and optionally `settings.json`.
 
-The `{ip}` placeholder is filled from the device IP (or host), and `{user}` from the Username field. Passwords are never stored: WoLmk only keeps the username and an optional free-text credential hint. For authenticated targets, either rely on integrated Windows authentication or edit the command in the Advanced section to prompt at send time, for example by adding `-Credential (Get-Credential {user})`. You can also replace the command entirely with an SSH call or any other tool. PowerShell remoting must be enabled on the target (`Enable-PSRemoting`) and the account must have rights to shut it down.
+## Getting started
 
-## Scheduled wake
+1. Launch WoLmk and click **+ Add device**.
+2. Enter a name and the target's MAC address. Leave the host as `255.255.255.255` for a normal LAN wake.
+3. Optionally set a **Device IP** so WoLmk can ping the machine and report when it comes online, or a **Service port** to check a TCP port instead.
+4. Click **Wake**. The status line and LED update as the device responds.
 
-Open Schedule on a device to set either a repeating schedule (pick weekdays and a time) or a one-time wake (a date and time). A background loop checks every 30 seconds and fires the wake at the set time. Schedules are stored in `devices.json`, so they survive restarts. A one-time schedule marks itself fired after it runs. The app must be running (including minimized to the tray) for a schedule to fire; pair it with Windows Task Scheduler or the "Wake on app start" option if you want it to run unattended.
-
-## Download and run
-
-Download the latest `WoLmk.exe` from [Releases](../../releases) and run it.
-
-Data is stored in `%APPDATA%\WoLmk\`: `devices.json` (your devices and schedules), `history.json` (wake log) and optionally `settings.json`.
+For the target to wake, enable Wake-on-LAN in its BIOS/UEFI and network adapter power settings, and use a wired connection where possible.
 
 ### settings.json
 
@@ -71,55 +82,54 @@ All keys are optional; defaults shown:
 
 ```json
 {
-  "watch_timeout": 60,
-  "watch_interval": 2,
-  "send_count": 3,
-  "send_interval": 500,
+  "watchTimeout": 60,
+  "watchInterval": 2,
+  "sendCount": 3,
+  "sendInterval": 500,
   "stagger": 2
 }
 ```
 
-- `watch_timeout`, `watch_interval`: how long (seconds) and how often to ping after a wake.
-- `send_count`, `send_interval`: how many magic packets to send per wake and the gap between them (milliseconds).
-- `stagger`: seconds to wait between devices when using Wake all.
+- `watchTimeout`, `watchInterval`: how long (seconds) and how often to ping after a wake.
+- `sendCount`, `sendInterval`: packets per wake and the gap between them (milliseconds).
+- `stagger`: seconds between devices when using Wake all.
 
-## Run from source
+## Building from source
+
+WoLmk is a [Wails](https://wails.io) app: a Go backend with an HTML, CSS and JavaScript frontend.
+
+Prerequisites:
+
+- Go 1.24 or newer
+- Node.js and npm (for the frontend build)
+- The Wails CLI
 
 ```bash
-python wolmk.py
+# install the Wails CLI
+go install github.com/wailsapp/wails/v2/cmd/wails@latest
+
+# from the repository root
+wails build
 ```
 
-Requires Python 3.9 or newer. Core functionality has no dependencies. Installing `pystray` and `pillow` enables the system tray mode; without them the app simply closes normally.
+The binary is written to `build/bin/WoLmk.exe` (or the platform equivalent). For live development use `wails dev`.
 
-## Build the .exe yourself
+## CLI usage
+
+WoLmk can send a magic packet without opening the window, which is handy for Task Scheduler, cron or scripts:
 
 ```bash
-build.bat
+WoLmk.exe --send AA:BB:CC:DD:EE:FF [host] [port]
 ```
 
-This installs PyInstaller if needed and produces `dist\WoLmk.exe` as a single file.
+- `host` defaults to `255.255.255.255`
+- `port` defaults to `9`
 
-## How Wake-on-LAN works
+The command exits with code 0 on success and 1 on error.
 
-Wake-on-LAN wakes a sleeping or powered-off machine by sending a magic packet: a UDP datagram containing 6 bytes of `0xFF` followed by the target's MAC address repeated 16 times (102 bytes total). An optional SecureOn password adds 6 more bytes. The network card stays powered in low-power states, watches for this pattern, and signals the motherboard to boot.
+## History
 
-For it to work, the target machine needs:
-
-1. BIOS/UEFI: enable Wake on LAN (sometimes called "Power On by PCI-E").
-2. Windows: Device Manager, network adapter, Power Management tab, enable "Allow this device to wake the computer". Disable Fast Startup if you want wake-from-shutdown.
-3. A wired connection. WOL over Wi-Fi (WoWLAN) is rarely supported and unreliable.
-
-### Waking over the internet (WAN)
-
-Magic packets are broadcast-based and do not route across the internet by themselves. To wake a machine remotely:
-
-1. On your router, forward an external UDP port (for example `9`) to your LAN's broadcast address (for example `192.168.1.255`), or to the target's static IP with a static ARP entry.
-2. In WoLmk, set the device's host to your public IP or DDNS hostname and the port to the forwarded port.
-3. Click Wake.
-
-## Platform notes
-
-The GUI and wake work on Windows, Linux and macOS from source; status-check ping flags are selected per platform. Remote power command defaults assume Windows targets, but the command is fully editable per device. Prebuilt binaries are provided for Windows only.
+WoLmk started as a Python and Tkinter app. Version 2.0.0 is a full rewrite in Go and Wails with the same feature set and a native web frontend. The original Python edition is preserved in the repository history.
 
 ## License
 

@@ -1,14 +1,16 @@
-# Python
-__pycache__/
-*.py[cod]
-*.egg-info/
-.venv/
-venv/
+# Archived Python edition (kept locally, never pushed)
+/archive/
 
-# PyInstaller build output
-build/
-dist/
-*.spec
+# Wails / Go build output
+build/bin/
+node_modules/
+frontend/dist/
+frontend/package.json.md5
+
+# Go
+*.exe
+*.test
+*.out
 
 # Editor/OS
 .vscode/
