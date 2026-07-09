@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""WoLmk — a tiny Wake-on-LAN desktop app.
+"""WoLmk, a tiny Wake-on-LAN desktop app.
 
 Sends WOL magic packets over UDP to wake machines on your LAN,
 or over the internet via a router/relay host (WAN wake).
@@ -8,25 +8,20 @@ Magic packet format: 6 bytes of 0xFF followed by the target MAC
 address repeated 16 times, sent as a UDP datagram (default port 9).
 """
 
+import ctypes
 import json
 import os
 import re
 import socket
 import sys
 import tkinter as tk
+import tkinter.font as tkfont
 from tkinter import messagebox
 
 APP_NAME = "WoLmk"
-APP_VERSION = "1.0.0"
+APP_VERSION = "1.1.0"
 DEFAULT_PORT = 9
 DEFAULT_BROADCAST = "255.255.255.255"
-
-# Optional modern UI — falls back to plain tkinter if not installed.
-try:
-    import customtkinter as ctk
-    HAS_CTK = True
-except ImportError:
-    HAS_CTK = False
 
 # ---------------------------------------------------------------- storage
 
@@ -82,34 +77,209 @@ def send_magic_packet(mac: str, host: str = DEFAULT_BROADCAST,
         sock.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
         sock.sendto(packet, (host, port))
 
-# ---------------------------------------------------------------- theming
+# ---------------------------------------------------------------- theme
 
-COLORS = {
-    "bg": "#1e1e2e",
-    "panel": "#27273a",
-    "panel_hi": "#313147",
-    "accent": "#7c6cf0",
-    "accent_hi": "#9385f5",
-    "text": "#e6e6f0",
-    "muted": "#8f8fa8",
-    "ok": "#4cc38a",
-    "err": "#e5534b",
-    "danger": "#a83a3a",
+C = {
+    "base":     "#0e1015",
+    "surface":  "#161a22",
+    "raise":    "#1c212b",
+    "line":     "#262c38",
+    "line_hi":  "#333b4b",
+    "accent":   "#8b7cf7",
+    "accent_hi": "#9d90fa",
+    "accent_lo": "#7568e0",
+    "on_accent": "#f6f5ff",
+    "text":     "#eceef4",
+    "muted":    "#9aa3b5",
+    "faint":    "#5d6575",
+    "ok":       "#45d18c",
+    "err":      "#f0645c",
+    "err_bg":   "#2a1c1e",
 }
-FONT = ("Segoe UI", 10)
-FONT_BOLD = ("Segoe UI", 10, "bold")
-FONT_TITLE = ("Segoe UI", 15, "bold")
 
 
-def flat_button(parent, text, command, bg=None, fg=None, **kw):
-    bg = bg or COLORS["accent"]
-    btn = tk.Button(parent, text=text, command=command, font=FONT_BOLD,
-                    bg=bg, fg=fg or COLORS["text"], activebackground=COLORS["accent_hi"],
-                    activeforeground=COLORS["text"], relief="flat", bd=0,
-                    padx=14, pady=6, cursor="hand2", **kw)
-    return btn
+def resource_path(rel: str) -> str:
+    base = getattr(sys, "_MEIPASS", os.path.dirname(os.path.abspath(__file__)))
+    return os.path.join(base, rel)
 
-# ---------------------------------------------------------------- dialogs
+
+def dark_titlebar(window) -> None:
+    """Ask DWM for a dark native title bar (Windows 10 1809+)."""
+    if sys.platform != "win32":
+        return
+    try:
+        window.update_idletasks()
+        hwnd = ctypes.windll.user32.GetParent(window.winfo_id())
+        value = ctypes.c_int(1)
+        for attr in (20, 19):  # DWMWA_USE_IMMERSIVE_DARK_MODE (and pre-20H1)
+            if ctypes.windll.dwmapi.DwmSetWindowAttribute(
+                    hwnd, attr, ctypes.byref(value), 4) == 0:
+                break
+    except Exception:
+        pass
+
+
+def pick_family(root, candidates, fallback):
+    families = set(tkfont.families(root))
+    for name in candidates:
+        if name in families:
+            return name
+    return fallback
+
+
+class Fonts:
+    def __init__(self, root):
+        ui = pick_family(root, ["Segoe UI Variable Text", "Segoe UI"], "TkDefaultFont")
+        display = pick_family(root, ["Segoe UI Variable Display", ui], ui)
+        mono = pick_family(root, ["Cascadia Mono", "Consolas"], "Courier New")
+        self.display = (display, 15, "bold")
+        self.body = (ui, 10)
+        self.strong = (ui, 10, "bold")
+        self.small = (ui, 9)
+        self.eyebrow = (ui, 8, "bold")
+        self.mono = (mono, 9)
+        self.mono_small = (mono, 8)
+
+
+def rounded_points(x1, y1, x2, y2, r):
+    """Point list for a smoothed polygon approximating a rounded rect."""
+    return [x1 + r, y1, x2 - r, y1, x2, y1, x2, y1 + r, x2, y2 - r, x2, y2,
+            x2 - r, y2, x1 + r, y2, x1, y2, x1, y2 - r, x1, y1 + r, x1, y1]
+
+
+def draw_round_rect(canvas, x1, y1, x2, y2, r, **kw):
+    return canvas.create_polygon(rounded_points(x1, y1, x2, y2, r),
+                                 smooth=True, **kw)
+
+
+def draw_bolt(canvas, cx, cy, scale, fill):
+    """Lightning bolt mark, same geometry as the app icon."""
+    pts = [(20, -46), (-42, 58), (-4, 58), (-24, 138), (48, 26), (6, 26)]
+    coords = [(cx + x * scale, cy + (y - 46) * scale) for x, y in pts]
+    return canvas.create_polygon(*[c for xy in coords for c in xy], fill=fill)
+
+# ---------------------------------------------------------------- widgets
+
+class Pill(tk.Canvas):
+    """Rounded flat button with hover and press states."""
+
+    STYLES = {
+        "primary": dict(fill=C["accent"], hover=C["accent_hi"], press=C["accent_lo"],
+                        text=C["on_accent"], text_hover=C["on_accent"],
+                        line="", line_hover=""),
+        "ghost": dict(fill=C["surface"], hover=C["raise"], press=C["base"],
+                      text=C["muted"], text_hover=C["text"],
+                      line=C["line"], line_hover=C["line_hi"]),
+        "danger": dict(fill=C["surface"], hover=C["err_bg"], press=C["base"],
+                       text=C["muted"], text_hover=C["err"],
+                       line=C["line"], line_hover="#4a2c2e"),
+    }
+
+    def __init__(self, parent, text, command, kind="ghost", font=None,
+                 padx=14, height=30, bg=None):
+        self.style = self.STYLES[kind]
+        self.command = command
+        font = font or ("Segoe UI", 9, "bold")
+        width = tkfont.Font(font=font).measure(text) + padx * 2
+        super().__init__(parent, width=width, height=height,
+                         bg=bg or parent["bg"], highlightthickness=0, bd=0,
+                         cursor="hand2")
+        self.rect = draw_round_rect(self, 1, 1, width - 1, height - 1, 12,
+                                    fill=self.style["fill"],
+                                    outline=self.style["line"] or self.style["fill"])
+        self.label = self.create_text(width // 2, height // 2, text=text,
+                                      font=font, fill=self.style["text"])
+        self.bind("<Enter>", lambda e: self._paint("hover"))
+        self.bind("<Leave>", lambda e: self._paint("rest"))
+        self.bind("<ButtonPress-1>", lambda e: self._paint("press"))
+        self.bind("<ButtonRelease-1>", self._release)
+
+    def _paint(self, state):
+        s = self.style
+        fill = {"rest": s["fill"], "hover": s["hover"], "press": s["press"]}[state]
+        line = s["line_hover"] if state != "rest" else s["line"]
+        text = s["text_hover"] if state != "rest" else s["text"]
+        self.itemconfigure(self.rect, fill=fill, outline=line or fill)
+        self.itemconfigure(self.label, fill=text)
+
+    def _release(self, event):
+        self._paint("hover")
+        if 0 <= event.x <= self.winfo_width() and 0 <= event.y <= self.winfo_height():
+            self.command()
+
+
+class DeviceCard(tk.Canvas):
+    """One device row: LED, name, technical meta line, actions."""
+
+    HEIGHT = 66
+
+    def __init__(self, parent, app, index, device):
+        super().__init__(parent, height=self.HEIGHT, bg=C["base"],
+                         highlightthickness=0, bd=0)
+        self.app, self.index, self.device = app, index, device
+        self.hovered = False
+        self.buttons = [
+            Pill(self, "Wake", lambda: app.wake(self), kind="primary",
+                 font=app.fonts.strong, bg=C["surface"]),
+            Pill(self, "Edit", lambda: app.edit_device(index),
+                 font=app.fonts.small, bg=C["surface"]),
+            Pill(self, "Remove", lambda: app.delete_device(index), kind="danger",
+                 font=app.fonts.small, bg=C["surface"]),
+        ]
+        self.bind("<Configure>", lambda e: self._draw())
+        self.bind("<Enter>", lambda e: self._hover(True))
+        self.bind("<Leave>", self._maybe_unhover)
+
+    def _hover(self, on):
+        self.hovered = on
+        fill = C["raise"] if on else C["surface"]
+        line = C["line_hi"] if on else C["line"]
+        self.itemconfigure(self.bg, fill=fill, outline=line)
+        for b in self.buttons:
+            b.configure(bg=fill)
+
+    def _maybe_unhover(self, event):
+        if not (0 <= event.x < self.winfo_width() and 0 <= event.y < self.winfo_height()):
+            self._hover(False)
+
+    def _draw(self):
+        self.delete("all")
+        w, h, dev, f = self.winfo_width(), self.HEIGHT, self.device, self.app.fonts
+        self.bg = draw_round_rect(self, 1, 2, w - 2, h - 3, 14,
+                                  fill=C["surface"], outline=C["line"])
+        self.led = self.create_oval(22, h // 2 - 4, 30, h // 2 + 4,
+                                    fill=C["faint"], outline="")
+        self.create_text(46, 22, text=dev["name"], font=f.strong,
+                         fill=C["text"], anchor="w")
+        wan = dev["host"] != DEFAULT_BROADCAST
+        target = f"{dev['host']}  WAN" if wan else "LAN broadcast"
+        meta = f"{dev['mac']}   {target}   :{dev['port']}"
+        self.create_text(46, 44, text=meta, font=f.mono, fill=C["muted"],
+                         anchor="w")
+        x = w - 14
+        for b in self.buttons:
+            self.create_window(x, h // 2, window=b, anchor="e")
+            x -= int(b["width"]) + 8
+
+    def pulse(self, color):
+        """Expanding ring from the LED: the packet leaving the app."""
+        self.itemconfigure(self.led, fill=color)
+        cx, cy = 26, self.HEIGHT // 2
+        ring = self.create_oval(cx, cy, cx, cy, outline=color, width=2)
+
+        def step(i=0):
+            if i > 10:
+                self.delete(ring)
+                self.after(2500, lambda: self.itemconfigure(self.led, fill=C["faint"]))
+                return
+            r = 4 + i * 2.2
+            self.coords(ring, cx - r, cy - r, cx + r, cy + r)
+            self.itemconfigure(ring, width=max(1, 2 - i * 0.15))
+            self.after(28, lambda: step(i + 1))
+
+        step()
+
+# ---------------------------------------------------------------- dialog
 
 class DeviceDialog(tk.Toplevel):
     """Add/edit device modal. Result in self.result (dict) or None."""
@@ -118,51 +288,55 @@ class DeviceDialog(tk.Toplevel):
         super().__init__(parent)
         self.result = None
         self.title("Edit device" if device else "Add device")
-        self.configure(bg=COLORS["bg"], padx=20, pady=16)
+        self.configure(bg=C["base"], padx=26, pady=20)
         self.resizable(False, False)
         self.transient(parent)
+        dark_titlebar(self)
         self.grab_set()
+        f = parent.fonts
 
         device = device or {}
         fields = [
-            ("Name", device.get("name", ""), "e.g. Gaming PC"),
-            ("MAC address", device.get("mac", ""), "AA:BB:CC:DD:EE:FF"),
-            ("Host / broadcast IP", device.get("host", DEFAULT_BROADCAST),
-             "255.255.255.255 for LAN, public IP/DNS for WAN"),
-            ("Port", str(device.get("port", DEFAULT_PORT)), "9 (or your router's forwarded port)"),
+            ("NAME", device.get("name", ""), "How the device appears in the list", f.body),
+            ("MAC ADDRESS", device.get("mac", ""), "AA:BB:CC:DD:EE:FF, any separator works", f.mono),
+            ("HOST", device.get("host", DEFAULT_BROADCAST),
+             "255.255.255.255 for LAN, public IP or DNS name for WAN", f.mono),
+            ("PORT", str(device.get("port", DEFAULT_PORT)),
+             "9 is standard; use your forwarded port for WAN", f.mono),
         ]
         self.entries = {}
-        for row, (label, value, hint) in enumerate(fields):
-            tk.Label(self, text=label, font=FONT_BOLD, bg=COLORS["bg"],
-                     fg=COLORS["text"], anchor="w").grid(row=row * 2, column=0,
-                                                         sticky="w", pady=(8, 1))
-            entry = tk.Entry(self, font=FONT, width=38, bg=COLORS["panel"],
-                             fg=COLORS["text"], insertbackground=COLORS["text"],
+        for row, (label, value, hint, font) in enumerate(fields):
+            tk.Label(self, text=label, font=f.eyebrow, bg=C["base"],
+                     fg=C["faint"], anchor="w").grid(
+                row=row * 3, column=0, sticky="w", pady=(14 if row else 0, 4))
+            entry = tk.Entry(self, font=font, width=36, bg=C["surface"],
+                             fg=C["text"], insertbackground=C["accent"],
                              relief="flat", highlightthickness=1,
-                             highlightbackground=COLORS["panel_hi"],
-                             highlightcolor=COLORS["accent"])
+                             highlightbackground=C["line"],
+                             highlightcolor=C["accent"])
             entry.insert(0, value)
-            entry.grid(row=row * 2, column=1, sticky="ew", pady=(8, 1), ipady=4)
-            tk.Label(self, text=hint, font=("Segoe UI", 8), bg=COLORS["bg"],
-                     fg=COLORS["muted"], anchor="w").grid(row=row * 2 + 1,
-                                                          column=1, sticky="w")
+            entry.grid(row=row * 3 + 1, column=0, sticky="ew", ipady=6, ipadx=8)
+            tk.Label(self, text=hint, font=(f.small[0], 8), bg=C["base"],
+                     fg=C["faint"], anchor="w").grid(
+                row=row * 3 + 2, column=0, sticky="w", pady=(3, 0))
             self.entries[label] = entry
 
-        btns = tk.Frame(self, bg=COLORS["bg"])
-        btns.grid(row=9, column=0, columnspan=2, sticky="e", pady=(16, 0))
-        flat_button(btns, "Cancel", self.destroy,
-                    bg=COLORS["panel_hi"]).pack(side="left", padx=(0, 8))
-        flat_button(btns, "Save", self._save).pack(side="left")
+        btns = tk.Frame(self, bg=C["base"])
+        btns.grid(row=12, column=0, sticky="e", pady=(22, 0))
+        Pill(btns, "Cancel", self.destroy, font=f.small,
+             bg=C["base"]).pack(side="left", padx=(0, 8))
+        Pill(btns, "Save device", self._save, kind="primary",
+             font=f.strong, bg=C["base"]).pack(side="left")
 
         self.bind("<Return>", lambda e: self._save())
         self.bind("<Escape>", lambda e: self.destroy())
-        self.entries["Name"].focus_set()
+        self.entries["NAME"].focus_set()
 
     def _save(self):
-        name = self.entries["Name"].get().strip()
-        mac = self.entries["MAC address"].get().strip()
-        host = self.entries["Host / broadcast IP"].get().strip() or DEFAULT_BROADCAST
-        port_s = self.entries["Port"].get().strip() or str(DEFAULT_PORT)
+        name = self.entries["NAME"].get().strip()
+        mac = self.entries["MAC ADDRESS"].get().strip()
+        host = self.entries["HOST"].get().strip() or DEFAULT_BROADCAST
+        port_s = self.entries["PORT"].get().strip() or str(DEFAULT_PORT)
         if not name:
             messagebox.showerror(APP_NAME, "Name is required.", parent=self)
             return
@@ -188,133 +362,158 @@ class DeviceDialog(tk.Toplevel):
 class WolApp(tk.Tk):
     def __init__(self):
         super().__init__()
-        self.title(f"{APP_NAME} — Wake-on-LAN")
-        self.configure(bg=COLORS["bg"])
-        self.geometry("560x480")
-        self.minsize(480, 360)
+        self.title(APP_NAME)
+        self.configure(bg=C["base"])
+        self.geometry("640x520")
+        self.minsize(560, 420)
+        self.fonts = Fonts(self)
+        dark_titlebar(self)
+        try:
+            # default=... also applies the icon to child dialogs
+            self.iconbitmap(default=resource_path(os.path.join("assets", "wolmk.ico")))
+        except tk.TclError:
+            pass
         self.devices = load_devices()
-        self.rows = []
+        self.cards = []
         self._build_ui()
-        self._render_devices()
+        self.render()
 
     def _build_ui(self):
-        header = tk.Frame(self, bg=COLORS["bg"])
-        header.pack(fill="x", padx=20, pady=(16, 8))
-        tk.Label(header, text="⚡ WoLmk", font=FONT_TITLE, bg=COLORS["bg"],
-                 fg=COLORS["text"]).pack(side="left")
-        flat_button(header, "+ Add device", self._add_device).pack(side="right")
+        f = self.fonts
+        header = tk.Frame(self, bg=C["base"])
+        header.pack(fill="x", padx=24, pady=(20, 4))
+        logo = tk.Canvas(header, width=30, height=30, bg=C["base"],
+                         highlightthickness=0, bd=0)
+        draw_round_rect(logo, 1, 1, 29, 29, 9, fill=C["accent"], outline="")
+        draw_bolt(logo, 15, 15, 0.145, C["on_accent"])
+        logo.pack(side="left")
+        titles = tk.Frame(header, bg=C["base"])
+        titles.pack(side="left", padx=(12, 0))
+        tk.Label(titles, text=APP_NAME, font=f.display, bg=C["base"],
+                 fg=C["text"], anchor="w").pack(fill="x")
+        tk.Label(titles, text="WAKE ON LAN", font=f.eyebrow, bg=C["base"],
+                 fg=C["faint"], anchor="w").pack(fill="x")
+        Pill(header, "+  Add device", self.add_device, kind="primary",
+             font=f.strong, bg=C["base"], height=32).pack(side="right")
 
-        tk.Label(self, text="Wake your machines with a magic packet.",
-                 font=FONT, bg=COLORS["bg"], fg=COLORS["muted"],
-                 anchor="w").pack(fill="x", padx=22)
-
-        # Scrollable device list
-        wrap = tk.Frame(self, bg=COLORS["bg"])
-        wrap.pack(fill="both", expand=True, padx=20, pady=12)
-        self.canvas = tk.Canvas(wrap, bg=COLORS["bg"], highlightthickness=0)
-        scrollbar = tk.Scrollbar(wrap, orient="vertical", command=self.canvas.yview)
-        self.list_frame = tk.Frame(self.canvas, bg=COLORS["bg"])
-        self.list_frame.bind(
-            "<Configure>",
-            lambda e: self.canvas.configure(scrollregion=self.canvas.bbox("all")))
+        body = tk.Frame(self, bg=C["base"])
+        body.pack(fill="both", expand=True, padx=24, pady=(14, 10))
+        self.canvas = tk.Canvas(body, bg=C["base"], highlightthickness=0, bd=0)
+        self.scrollbar = tk.Scrollbar(
+            body, orient="vertical", command=self.canvas.yview, width=6,
+            relief="flat", bd=0, elementborderwidth=0,
+            bg=C["line_hi"], troughcolor=C["base"], activebackground=C["accent"])
+        self.list_frame = tk.Frame(self.canvas, bg=C["base"])
         self._list_window = self.canvas.create_window(
             (0, 0), window=self.list_frame, anchor="nw")
+        self.list_frame.bind("<Configure>", self._sync_scroll)
         self.canvas.bind(
             "<Configure>",
             lambda e: self.canvas.itemconfigure(self._list_window, width=e.width))
-        self.canvas.configure(yscrollcommand=scrollbar.set)
+        self.canvas.configure(yscrollcommand=self.scrollbar.set)
         self.canvas.pack(side="left", fill="both", expand=True)
-        scrollbar.pack(side="right", fill="y")
         self.canvas.bind_all(
             "<MouseWheel>",
             lambda e: self.canvas.yview_scroll(-1 * (e.delta // 120), "units"))
 
-        self.status = tk.Label(self, text="Ready", font=FONT, bg=COLORS["panel"],
-                               fg=COLORS["muted"], anchor="w", padx=12, pady=6)
-        self.status.pack(fill="x", side="bottom")
+        footer = tk.Frame(self, bg=C["surface"])
+        footer.pack(fill="x", side="bottom")
+        tk.Frame(footer, bg=C["line"], height=1).pack(fill="x")
+        inner = tk.Frame(footer, bg=C["surface"])
+        inner.pack(fill="x", padx=24, pady=7)
+        self.status_dot = tk.Canvas(inner, width=8, height=8, bg=C["surface"],
+                                    highlightthickness=0, bd=0)
+        self._dot = self.status_dot.create_oval(1, 1, 7, 7, fill=C["faint"],
+                                                outline="")
+        self.status_dot.pack(side="left")
+        self.status = tk.Label(inner, text="Ready", font=f.small,
+                               bg=C["surface"], fg=C["muted"], anchor="w")
+        self.status.pack(side="left", padx=(8, 0))
+        tk.Label(inner, text=f"v{APP_VERSION}", font=f.mono_small,
+                 bg=C["surface"], fg=C["faint"]).pack(side="right")
 
-    def _render_devices(self):
-        for row in self.rows:
-            row.destroy()
-        self.rows = []
+    def _sync_scroll(self, _event=None):
+        self.canvas.configure(scrollregion=self.canvas.bbox("all"))
+        need = self.list_frame.winfo_reqheight() > self.canvas.winfo_height()
+        if need and not self.scrollbar.winfo_ismapped():
+            self.scrollbar.pack(side="right", fill="y", padx=(6, 0))
+        elif not need and self.scrollbar.winfo_ismapped():
+            self.scrollbar.pack_forget()
+
+    def render(self):
+        for child in self.list_frame.winfo_children():
+            child.destroy()
+        self.cards = []
         if not self.devices:
-            empty = tk.Label(self.list_frame,
-                             text="No devices yet.\nClick “+ Add device” to get started.",
-                             font=FONT, bg=COLORS["bg"], fg=COLORS["muted"],
-                             pady=40, justify="center")
-            empty.pack(fill="x")
-            self.rows.append(empty)
+            self._empty_state()
             return
         for i, dev in enumerate(self.devices):
-            self.rows.append(self._device_row(i, dev))
+            card = DeviceCard(self.list_frame, self, i, dev)
+            card.pack(fill="x", pady=3)
+            self.cards.append(card)
 
-    def _device_row(self, index, dev):
-        card = tk.Frame(self.list_frame, bg=COLORS["panel"], padx=14, pady=10)
-        card.pack(fill="x", pady=4)
-
-        info = tk.Frame(card, bg=COLORS["panel"])
-        info.pack(side="left", fill="x", expand=True)
-        tk.Label(info, text=dev["name"], font=FONT_BOLD, bg=COLORS["panel"],
-                 fg=COLORS["text"], anchor="w").pack(fill="x")
-        target = "LAN broadcast" if dev["host"] == DEFAULT_BROADCAST \
-            else f"{dev['host']} (WAN)"
-        tk.Label(info, text=f"{dev['mac']}  ·  {target}  ·  port {dev['port']}",
-                 font=("Segoe UI", 9), bg=COLORS["panel"], fg=COLORS["muted"],
-                 anchor="w").pack(fill="x")
-
-        flat_button(card, "Wake", lambda: self._wake(dev)).pack(side="right", padx=(8, 0))
-        flat_button(card, "Edit", lambda: self._edit_device(index),
-                    bg=COLORS["panel_hi"]).pack(side="right", padx=(8, 0))
-        flat_button(card, "✕", lambda: self._delete_device(index),
-                    bg=COLORS["danger"]).pack(side="right")
-        return card
+    def _empty_state(self):
+        box = tk.Frame(self.list_frame, bg=C["base"])
+        box.pack(expand=True, pady=70)
+        mark = tk.Canvas(box, width=56, height=56, bg=C["base"],
+                         highlightthickness=0, bd=0)
+        draw_round_rect(mark, 1, 1, 55, 55, 16, fill=C["surface"],
+                        outline=C["line"])
+        draw_bolt(mark, 28, 28, 0.24, C["faint"])
+        mark.pack()
+        tk.Label(box, text="No devices yet", font=self.fonts.strong,
+                 bg=C["base"], fg=C["text"]).pack(pady=(14, 2))
+        tk.Label(box, text="Add a device and wake it from here.",
+                 font=self.fonts.small, bg=C["base"], fg=C["muted"]).pack()
 
     # ----------------------------------------------------------- actions
 
-    def _add_device(self):
+    def add_device(self):
         dialog = DeviceDialog(self)
         self.wait_window(dialog)
         if dialog.result:
             self.devices.append(dialog.result)
             save_devices(self.devices)
-            self._render_devices()
-            self._set_status(f"Added “{dialog.result['name']}”", ok=True)
+            self.render()
+            self.set_status(f"Added {dialog.result['name']}", "ok")
 
-    def _edit_device(self, index):
+    def edit_device(self, index):
         dialog = DeviceDialog(self, self.devices[index])
         self.wait_window(dialog)
         if dialog.result:
             self.devices[index] = dialog.result
             save_devices(self.devices)
-            self._render_devices()
-            self._set_status(f"Updated “{dialog.result['name']}”", ok=True)
+            self.render()
+            self.set_status(f"Updated {dialog.result['name']}", "ok")
 
-    def _delete_device(self, index):
+    def delete_device(self, index):
         dev = self.devices[index]
-        if messagebox.askyesno(APP_NAME, f"Delete “{dev['name']}”?", parent=self):
+        if messagebox.askyesno(APP_NAME, f"Remove {dev['name']}?", parent=self):
             del self.devices[index]
             save_devices(self.devices)
-            self._render_devices()
-            self._set_status(f"Deleted “{dev['name']}”")
+            self.render()
+            self.set_status(f"Removed {dev['name']}")
 
-    def _wake(self, dev):
+    def wake(self, card):
+        dev = card.device
         try:
             send_magic_packet(dev["mac"], dev["host"], dev["port"])
         except Exception as exc:
-            self._set_status(f"✗ Failed to wake “{dev['name']}”: {exc}", err=True)
+            card.pulse(C["err"])
+            self.set_status(f"Failed to wake {dev['name']}: {exc}", "err")
             return
-        self._set_status(
-            f"✓ Magic packet sent to “{dev['name']}” "
-            f"({dev['host']}:{dev['port']})", ok=True)
+        card.pulse(C["ok"])
+        self.set_status(
+            f"Magic packet sent to {dev['name']} ({dev['host']}:{dev['port']})", "ok")
 
-    def _set_status(self, text, ok=False, err=False):
-        color = COLORS["ok"] if ok else COLORS["err"] if err else COLORS["muted"]
+    def set_status(self, text, kind="muted"):
+        color = {"ok": C["ok"], "err": C["err"], "muted": C["muted"]}[kind]
         self.status.configure(text=text, fg=color)
+        self.status_dot.itemconfigure(
+            self._dot, fill=color if kind != "muted" else C["faint"])
 
 
 def main():
-    if HAS_CTK:
-        ctk.set_appearance_mode("dark")
     app = WolApp()
     app.mainloop()
 

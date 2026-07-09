@@ -18,7 +18,7 @@ if errorlevel 1 (
 )
 
 set ICON_ARG=
-if exist assets\wolmk.ico set ICON_ARG=--icon assets\wolmk.ico
+if exist assets\wolmk.ico set ICON_ARG=--icon assets\wolmk.ico --add-data "assets\wolmk.ico;assets"
 
 echo Building single-file exe...
 python -m PyInstaller --noconfirm --onefile --windowed --name WoLmk %ICON_ARG% wolmk.py
