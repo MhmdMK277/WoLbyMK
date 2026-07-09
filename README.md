@@ -58,16 +58,24 @@
 
 ## Download
 
-Every release ships prebuilt binaries for the desktop app and the companion agent on all supported platforms. Grab the two files for your platform from the [latest release](https://github.com/MhmdMK277/WoLbyMK/releases/latest):
+Every release ships zipped builds of the desktop app and the companion agent. Grab the files for your platform from the [latest release](https://github.com/MhmdMK277/WoLbyMK/releases/latest):
 
-| Platform | Desktop app | Companion agent |
-|----------|-------------|-----------------|
-| Windows (x64) | [WoLmk-windows-amd64.exe](https://github.com/MhmdMK277/WoLbyMK/releases/latest/download/WoLmk-windows-amd64.exe) | [WoLmk-Agent-windows-amd64.exe](https://github.com/MhmdMK277/WoLbyMK/releases/latest/download/WoLmk-Agent-windows-amd64.exe) |
-| Linux (x64) | [WoLmk-linux-amd64](https://github.com/MhmdMK277/WoLbyMK/releases/latest/download/WoLmk-linux-amd64) | [WoLmk-Agent-linux-amd64](https://github.com/MhmdMK277/WoLbyMK/releases/latest/download/WoLmk-Agent-linux-amd64) |
-| macOS (Intel) | [WoLmk-darwin-amd64](https://github.com/MhmdMK277/WoLbyMK/releases/latest/download/WoLmk-darwin-amd64) | [WoLmk-Agent-darwin-amd64](https://github.com/MhmdMK277/WoLbyMK/releases/latest/download/WoLmk-Agent-darwin-amd64) |
-| macOS (Apple Silicon) | [WoLmk-darwin-arm64](https://github.com/MhmdMK277/WoLbyMK/releases/latest/download/WoLmk-darwin-arm64) | [WoLmk-Agent-darwin-arm64](https://github.com/MhmdMK277/WoLbyMK/releases/latest/download/WoLmk-Agent-darwin-arm64) |
+| Platform | Desktop app | Agent |
+|----------|-------------|-------|
+| Windows (x64) | [WoLmk_windows_amd64.zip](https://github.com/MhmdMK277/WoLbyMK/releases/latest/download/WoLmk_windows_amd64.zip) | [WoLmk-Agent_windows_amd64.zip](https://github.com/MhmdMK277/WoLbyMK/releases/latest/download/WoLmk-Agent_windows_amd64.zip) |
+| Linux (x64) | [WoLmk_linux_amd64.zip](https://github.com/MhmdMK277/WoLbyMK/releases/latest/download/WoLmk_linux_amd64.zip) | [WoLmk-Agent_linux_amd64.zip](https://github.com/MhmdMK277/WoLbyMK/releases/latest/download/WoLmk-Agent_linux_amd64.zip) |
+| Linux (ARM64) | use `--serve` mode from another machine | [WoLmk-Agent_linux_arm64.zip](https://github.com/MhmdMK277/WoLbyMK/releases/latest/download/WoLmk-Agent_linux_arm64.zip) |
+| macOS (Universal, Intel and Apple Silicon) | [WoLmk_macos_universal.zip](https://github.com/MhmdMK277/WoLbyMK/releases/latest/download/WoLmk_macos_universal.zip) | [WoLmk-Agent_macos_amd64.zip](https://github.com/MhmdMK277/WoLbyMK/releases/latest/download/WoLmk-Agent_macos_amd64.zip) / [WoLmk-Agent_macos_arm64.zip](https://github.com/MhmdMK277/WoLbyMK/releases/latest/download/WoLmk-Agent_macos_arm64.zip) |
 
-No installer or runtime is required. On Linux and macOS, mark the files executable after downloading: `chmod +x WoLmk-*`. You can also build from source (see below).
+Each release includes a `checksums.txt` with SHA256 hashes for every zip. You can also build from source (see below).
+
+### Install
+
+**Windows**: download the zip, extract it, and run `WoLmk.exe`. No installer or runtime is required.
+
+**macOS**: download the zip, extract `WoLmk.app`, and drag it to Applications. On first launch, right-click the app and choose **Open** to bypass Gatekeeper, since the app is unsigned. This is normal for open-source apps distributed outside the App Store.
+
+**Linux**: download the zip and extract it. Install the WebKitGTK runtime if it is not already present: `sudo apt install libwebkit2gtk-4.1-0` on Debian/Ubuntu, `webkit2gtk4.1` on Fedora, or `webkit2gtk-4.1` on Arch. Then make the binary executable (`chmod +x WoLmk`) and run it.
 
 Configuration lives in the OS application data directory:
 

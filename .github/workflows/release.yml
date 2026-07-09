@@ -10,38 +10,52 @@ permissions:
 
 jobs:
   build-app:
-    name: Build ${{ matrix.artifact }}
-    runs-on: ${{ matrix.os }}
+    name: Build ${{ matrix.build.zip }}
+    runs-on: ${{ matrix.build.os }}
     strategy:
       fail-fast: false
       matrix:
-        include:
+        build:
           - os: windows-latest
             platform: windows/amd64
-            artifact: WoLmk-windows-amd64.exe
-            binary: build/bin/WoLmk.exe
+            zip: WoLmk_windows_amd64.zip
           - os: ubuntu-latest
             platform: linux/amd64
-            artifact: WoLmk-linux-amd64
-            binary: build/bin/WoLmk
-            # ubuntu-latest ships webkit2gtk 4.1 only, which needs this build tag
-            tags: webkit2_41
+            zip: WoLmk_linux_amd64.zip
           - os: macos-latest
-            platform: darwin/amd64
-            artifact: WoLmk-darwin-amd64
-            binary: build/bin/WoLmk.app/Contents/MacOS/WoLmk
-          - os: macos-latest
-            platform: darwin/arm64
-            artifact: WoLmk-darwin-arm64
-            binary: build/bin/WoLmk.app/Contents/MacOS/WoLmk
+            platform: darwin/universal
+            zip: WoLmk_macos_universal.zip
     steps:
       - uses: actions/checkout@v4
 
-      - uses: actions/setup-go@v5
+      # Windows and macOS build through the official Wails build action.
+      # nsis is disabled (we ship a plain zip, not an installer) and package
+      # is disabled because the action's internal packaging uses the retired
+      # actions/upload-artifact@v3 and creates its own release on tag pushes.
+      - name: Build with Wails (Windows and macOS)
+        if: runner.os != 'Linux'
+        uses: dAppServer/wails-build-action@v2.2
+        with:
+          build-name: WoLmk
+          build-platform: ${{ matrix.build.platform }}
+          go-version: "1.25.x"
+          node-version: "20.x"
+          nsis: "false"
+          package: "false"
+
+      # Linux cannot use wails-build-action v2.2: it hardcodes
+      # libwebkit2gtk-4.0-dev, which no longer exists on ubuntu-latest
+      # (24.04 ships webkit2gtk 4.1 only), and it has no input for the
+      # webkit2_41 build tag. Build with the Wails CLI directly instead.
+      - name: Set up Go (Linux)
+        if: runner.os == 'Linux'
+        uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
 
-      - uses: actions/setup-node@v4
+      - name: Set up Node (Linux)
+        if: runner.os == 'Linux'
+        uses: actions/setup-node@v4
         with:
           node-version: 20
 
@@ -51,32 +65,36 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y libgtk-3-dev libwebkit2gtk-4.1-dev
 
-      - name: Install Wails CLI
-        run: go install github.com/wailsapp/wails/v2/cmd/wails@latest
-
-      - name: Build
-        shell: bash
+      - name: Build with Wails (Linux)
+        if: runner.os == 'Linux'
         run: |
-          if [ -n "${{ matrix.tags }}" ]; then
-            wails build -platform "${{ matrix.platform }}" -tags "${{ matrix.tags }}"
-          else
-            wails build -platform "${{ matrix.platform }}"
-          fi
+          go install github.com/wailsapp/wails/v2/cmd/wails@latest
+          wails build -platform linux/amd64 -tags webkit2_41
 
-      - name: Stage binary
-        shell: bash
-        run: cp "${{ matrix.binary }}" "${{ matrix.artifact }}"
+      - name: Zip binary (Windows)
+        if: runner.os == 'Windows'
+        run: Compress-Archive -Path build\bin\WoLmk.exe -DestinationPath ${{ matrix.build.zip }}
+
+      - name: Zip binary (Linux)
+        if: runner.os == 'Linux'
+        run: zip -j "${{ matrix.build.zip }}" build/bin/WoLmk
+
+      - name: Zip app bundle (macOS)
+        if: runner.os == 'macOS'
+        run: ditto -c -k --keepParent build/bin/WoLmk.app "${{ matrix.build.zip }}"
 
       - uses: actions/upload-artifact@v4
         with:
-          name: ${{ matrix.artifact }}
-          path: ${{ matrix.artifact }}
+          name: ${{ matrix.build.zip }}
+          path: ${{ matrix.build.zip }}
           if-no-files-found: error
 
   build-agent:
     name: Build WoLmk-Agent (all platforms)
-    # macOS host: the darwin systray backend needs cgo, so darwin binaries
-    # must be built natively; windows and linux are pure Go and cross-compile.
+    # macOS host, not Linux: the agent's systray dependency needs cgo on
+    # darwin, so the macOS binaries cannot be cross-compiled from a Linux
+    # runner. A single macOS runner builds darwin natively and cross-compiles
+    # the windows and linux targets, which are pure Go, with GOOS/GOARCH.
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v4
@@ -85,17 +103,25 @@ jobs:
         with:
           go-version-file: go.mod
 
-      - name: Cross-compile agent
+      - name: Cross-compile and zip
         run: |
-          CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -ldflags "-s -w" -o WoLmk-Agent-windows-amd64.exe ./cmd/agent
-          CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -ldflags "-s -w" -o WoLmk-Agent-linux-amd64 ./cmd/agent
-          CGO_ENABLED=1 GOOS=darwin GOARCH=amd64 go build -ldflags "-s -w" -o WoLmk-Agent-darwin-amd64 ./cmd/agent
-          CGO_ENABLED=1 GOOS=darwin GOARCH=arm64 go build -ldflags "-s -w" -o WoLmk-Agent-darwin-arm64 ./cmd/agent
+          build() {
+            local goos="$1" goarch="$2" cgo="$3" bin="$4" zipname="$5"
+            mkdir -p "dist/$goos-$goarch"
+            CGO_ENABLED="$cgo" GOOS="$goos" GOARCH="$goarch" \
+              go build -ldflags "-s -w" -o "dist/$goos-$goarch/$bin" ./cmd/agent
+            (cd "dist/$goos-$goarch" && zip "$GITHUB_WORKSPACE/$zipname" "$bin")
+          }
+          build windows amd64 0 WoLmk-Agent.exe WoLmk-Agent_windows_amd64.zip
+          build linux   amd64 0 WoLmk-Agent     WoLmk-Agent_linux_amd64.zip
+          build linux   arm64 0 WoLmk-Agent     WoLmk-Agent_linux_arm64.zip
+          build darwin  amd64 1 WoLmk-Agent     WoLmk-Agent_macos_amd64.zip
+          build darwin  arm64 1 WoLmk-Agent     WoLmk-Agent_macos_arm64.zip
 
       - uses: actions/upload-artifact@v4
         with:
           name: WoLmk-Agent
-          path: WoLmk-Agent-*
+          path: WoLmk-Agent_*.zip
           if-no-files-found: error
 
   release:
@@ -108,7 +134,13 @@ jobs:
           path: dist
           merge-multiple: true
 
+      - name: Generate checksums
+        working-directory: dist
+        run: sha256sum *.zip > checksums.txt
+
       - uses: softprops/action-gh-release@v2
         with:
-          files: dist/*
+          files: |
+            dist/*.zip
+            dist/checksums.txt
           generate_release_notes: true
