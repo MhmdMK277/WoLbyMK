@@ -61,6 +61,7 @@ function buildShell() {
           <span class="eyebrow">WAKE ON LAN</span>
         </div>
         <div class="spacer"></div>
+        <button class="btn" id="myDeviceBtn">My Device</button>
         <button class="btn" id="scanBtn">Scan network</button>
         <button class="btn" id="wakeAll">Wake all</button>
         <button class="btn primary" id="addBtn">+ Add device</button>
@@ -77,6 +78,7 @@ function buildShell() {
     </div>`;
 
   document.getElementById("addBtn").onclick = () => openDeviceDialog(null, -1);
+  document.getElementById("myDeviceBtn").onclick = openMyDevice;
   document.getElementById("scanBtn").onclick = openScanModal;
   document.getElementById("wakeAll").onclick = () => Go().WakeAll();
   document.getElementById("historyBtn").onclick = openHistory;
@@ -415,6 +417,52 @@ async function openHistory() {
     [{ label: "Close", cls: "btn", fn: closeModal }],
     "wide"
   );
+}
+
+// ---- my device ----------------------------------------------------------
+
+async function openMyDevice() {
+  const adapters = (await Go().GetNetworkAdapters()) || [];
+  let body;
+  if (!adapters.length) {
+    body = `<div class="history-empty">No network adapters found.</div>`;
+  } else {
+    body =
+      `<div class="scan-note">Network adapters on this machine. The primary adapter carries the default gateway.</div>` +
+      `<table class="adapter-table">` +
+      adapters
+        .map(
+          (a, i) => `<tr>
+            <td>
+              <div class="ad-name">${esc(a.name)}${a.gateway ? ` <span class="badge">primary</span>` : ""}</div>
+              <div class="mono">MAC ${esc(a.mac || "-")} &nbsp; IP ${esc(a.ipv4 || "-")}</div>
+            </td>
+            <td class="${a.up ? "on" : "off"}">${a.up ? "connected" : "disconnected"}</td>
+            <td style="text-align:right">
+              <button class="btn small" data-i="${i}">Copy</button>
+            </td>
+          </tr>`
+        )
+        .join("") +
+      `</table>`;
+  }
+  const modal = openModal("My Device", body, [
+    { label: "Close", cls: "btn", fn: closeModal },
+  ], "wide");
+  modal.querySelectorAll("button[data-i]").forEach((b) => {
+    b.onclick = async () => {
+      const a = adapters[parseInt(b.dataset.i, 10)];
+      const text = `Name: ${a.name}, MAC: ${a.mac || "-"}, IP: ${a.ipv4 || "-"}`;
+      try {
+        if (RT().ClipboardSetText) await RT().ClipboardSetText(text);
+        else await navigator.clipboard.writeText(text);
+        b.textContent = "Copied";
+        setTimeout(() => (b.textContent = "Copy"), 1200);
+      } catch {
+        setStatus("Could not copy to clipboard", "err");
+      }
+    };
+  });
 }
 
 // ---- network scan -------------------------------------------------------

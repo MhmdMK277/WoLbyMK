@@ -174,3 +174,28 @@ export namespace main {
 
 }
 
+export namespace netinfo {
+	
+	export class Adapter {
+	    name: string;
+	    mac: string;
+	    ipv4: string;
+	    up: boolean;
+	    gateway: boolean;
+	
+	    static createFrom(source: any = {}) {
+	        return new Adapter(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.name = source["name"];
+	        this.mac = source["mac"];
+	        this.ipv4 = source["ipv4"];
+	        this.up = source["up"];
+	        this.gateway = source["gateway"];
+	    }
+	}
+
+}
+

@@ -11,6 +11,8 @@ import (
 	"time"
 
 	wruntime "github.com/wailsapp/wails/v2/pkg/runtime"
+
+	"WoLmk/internal/netinfo"
 )
 
 // App holds the application state and exposes bound methods to the frontend.
@@ -94,6 +96,10 @@ func (a *App) GetHistory() []HistoryEntry {
 }
 
 func (a *App) Version() string { return appVersion }
+
+func (a *App) GetNetworkAdapters() []netinfo.Adapter {
+	return netinfo.Adapters()
+}
 
 // ---- device CRUD --------------------------------------------------------
 

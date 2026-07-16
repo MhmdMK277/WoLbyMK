@@ -26,6 +26,10 @@ export function GetHistory() {
   return window['go']['main']['App']['GetHistory']();
 }
 
+export function GetNetworkAdapters() {
+  return window['go']['main']['App']['GetNetworkAdapters']();
+}
+
 export function GetSettings() {
   return window['go']['main']['App']['GetSettings']();
 }

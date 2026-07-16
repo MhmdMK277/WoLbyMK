@@ -15,12 +15,12 @@ import (
 	"path/filepath"
 	"runtime"
 	"strconv"
-	"strings"
 
 	_ "embed"
 
 	"github.com/energye/systray"
 	"WoLmk/internal/agentproto"
+	"WoLmk/internal/netinfo"
 )
 
 //go:embed icon.ico
@@ -86,33 +86,43 @@ func loadConfig() Config {
 	return cfg
 }
 
-// localInfo returns the first non-loopback IPv4 address, its MAC and hostname.
-func localInfo() (ip, mac, host string) {
-	host, _ = os.Hostname()
-	ifaces, _ := net.Interfaces()
-	for _, iface := range ifaces {
-		if iface.Flags&net.FlagUp == 0 || iface.Flags&net.FlagLoopback != 0 {
-			continue
-		}
-		addrs, _ := iface.Addrs()
-		for _, a := range addrs {
-			if ipnet, ok := a.(*net.IPNet); ok && ipnet.IP.To4() != nil {
-				return ipnet.IP.String(), iface.HardwareAddr.String(), host
-			}
-		}
-	}
-	return "", "", host
-}
-
 func printInfo(cfg Config) {
-	ip, mac, host := localInfo()
+	host, _ := os.Hostname()
+	adapters := netinfo.Adapters()
+	sel, reason, found := netinfo.Primary(adapters)
 	fmt.Println("WoLmk Agent")
 	fmt.Println("===========")
 	fmt.Printf("Hostname   : %s\n", host)
-	fmt.Printf("IP address : %s\n", ip)
-	fmt.Printf("MAC address: %s\n", strings.ToUpper(mac))
+	fmt.Printf("IP address : %s\n", sel.IPv4)
+	fmt.Printf("MAC address: %s\n", sel.MAC)
 	fmt.Printf("Agent port : %d\n", cfg.Port)
 	fmt.Printf("Auth token : %s\n", cfg.Token)
+	fmt.Println()
+	fmt.Println("Network adapters:")
+	for _, ad := range adapters {
+		marker := "   "
+		if found && ad.Name == sel.Name {
+			marker = " * "
+		}
+		status := "disconnected"
+		if ad.Up {
+			status = "connected"
+		}
+		ip := ad.IPv4
+		if ip == "" {
+			ip = "-"
+		}
+		mac := ad.MAC
+		if mac == "" {
+			mac = "-"
+		}
+		fmt.Printf("%s%-24s MAC %-17s IP %-15s %s\n", marker, ad.Name, mac, ip, status)
+	}
+	if found {
+		fmt.Printf("Selected %q because it %s.\n", sel.Name, reason)
+	} else {
+		fmt.Println("No usable network adapter found.")
+	}
 	fmt.Println()
 	fmt.Println("Enter the IP, agent port and auth token in the WoLmk device dialog.")
 	fmt.Println("This window can stay open, or install as a service with --install.")
