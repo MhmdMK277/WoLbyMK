@@ -73,7 +73,15 @@ Each release includes a `checksums.txt` with SHA256 hashes for every zip. You ca
 
 **Windows**: download the zip, extract it, and run `WoLmk.exe`. No installer or runtime is required.
 
-**macOS**: download the zip, extract `WoLmk.app`, and drag it to Applications. On first launch, right-click the app and choose **Open** to bypass Gatekeeper, since the app is unsigned. This is normal for open-source apps distributed outside the App Store. If right-click > Open still blocks the app, run `xattr -cr WoLmk.app` in Terminal, which removes the macOS quarantine flag on unsigned apps.
+**macOS**: download the zip, extract `WoLmk.app`, and drag it to Applications. The app is not notarized through Apple's paid developer program, so Gatekeeper blocks it on first launch. This is standard for all open-source apps that are not notarized through Apple's $99/year developer program. On macOS Sequoia (15 and later), allow it once like this:
+
+1. Double-click `WoLmk.app`. macOS will block it.
+2. Click **Done** (do not move to trash).
+3. Open **System Settings** > **Privacy & Security**.
+4. Scroll down. You will see "WoLmk was blocked". Click **Open Anyway**.
+5. Enter your password. The app will launch and macOS will remember your choice.
+
+If you prefer the Terminal approach, run `xattr -cr WoLmk.app` instead, which removes the quarantine flag.
 
 **Linux**: download the zip and extract it. Install the WebKitGTK runtime if it is not already present: `sudo apt install libwebkit2gtk-4.1-0` on Debian/Ubuntu, `webkit2gtk4.1` on Fedora, or `webkit2gtk-4.1` on Arch. Then make the binary executable (`chmod +x WoLmk`) and run it.
 
